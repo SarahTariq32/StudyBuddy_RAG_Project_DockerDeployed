@@ -1,0 +1,19 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic
+
+# file uploads
+python-multipart
+aiofiles
+
+# RAG core
+chromadb
+sentence-transformers
+torch
+numpy
+pypdf
+
+# LLM providers (both installed — .env decides which one is used at runtime)
+google-genai
+groq

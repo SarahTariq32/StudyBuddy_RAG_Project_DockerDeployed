@@ -1,0 +1,7 @@
+backend/.env
+frontend/.env
+__pycache__/
+*.pyc
+backend/app.db
+backend/storage/chroma_db/
+backend/storage/pdfs/
