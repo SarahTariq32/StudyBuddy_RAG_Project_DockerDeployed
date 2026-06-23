@@ -1,5 +1,5 @@
 import chromadb
-from app.config import CHROMA_PATH
+from app.config import CHROMA_PATH, MAX_PARENT_TEXT_IN_METADATA
 
 # One persistent ChromaDB client for the whole app lifetime.
 # "persistent" means the collection is saved to disk at CHROMA_PATH
@@ -31,7 +31,7 @@ def add_chunks(
     metadatas = [
         {
             "doc_id": doc_id,
-            "parent_text": parent_chunks[parent_mapping[i]],
+            "parent_text": parent_chunks[parent_mapping[i]][:MAX_PARENT_TEXT_IN_METADATA],
         }
         for i in range(len(child_chunks))
     ]

@@ -20,6 +20,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-8b-instruct:free")
 # --- Embedding Model ---
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "48"))
 
 # --- Chunking ---
 # Larger chunks reduce total embedding calls and speed up indexing.
@@ -28,10 +29,12 @@ CHILD_CHUNK_SIZE = int(os.getenv("CHILD_CHUNK_SIZE", "500"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
 
 # Hard cap to prevent very large PDFs from generating huge embedding workloads.
-MAX_CHILD_CHUNKS = int(os.getenv("MAX_CHILD_CHUNKS", "1200"))
+MAX_CHILD_CHUNKS = int(os.getenv("MAX_CHILD_CHUNKS", "450"))
 # Cap extraction/indexing work for very large files.
-MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "80"))
-MAX_TEXT_CHARS = int(os.getenv("MAX_TEXT_CHARS", "250000"))
+MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "40"))
+MAX_TEXT_CHARS = int(os.getenv("MAX_TEXT_CHARS", "120000"))
+# Reduce write amplification in vector metadata.
+MAX_PARENT_TEXT_IN_METADATA = int(os.getenv("MAX_PARENT_TEXT_IN_METADATA", "900"))
 
 # --- Retrieval ---
 TOP_K = 3

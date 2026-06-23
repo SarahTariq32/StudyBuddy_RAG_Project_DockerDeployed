@@ -181,14 +181,31 @@ function PDFItem({ doc, onDocumentsChanged }) {
           </span>
         )}
         {isProcessing && (
-          <span style={{
-            color: 'rgba(0,180,255,0.5)',
-            fontSize: '0.7rem',
-            letterSpacing: '0.05em',
-            animation: 'pulse 1.5s ease-in-out infinite',
-          }}>
-            INDEXING...
-          </span>
+          <div style={{ marginTop: '0.2rem', maxWidth: '120px' }}>
+            <div style={{
+              color: 'rgba(0,180,255,0.65)',
+              fontSize: '0.68rem',
+              letterSpacing: '0.06em',
+              marginBottom: '0.2rem',
+            }}>
+              INDEXING...
+            </div>
+            <div style={{
+              width: '100%',
+              height: '3px',
+              background: 'rgba(0,140,220,0.22)',
+              borderRadius: '999px',
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                width: '38%',
+                height: '100%',
+                borderRadius: '999px',
+                background: 'linear-gradient(90deg, rgba(0,180,255,0), rgba(0,220,255,0.95), rgba(0,180,255,0))',
+                animation: 'indexingSweep 1.2s linear infinite',
+              }} />
+            </div>
+          </div>
         )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
@@ -308,6 +325,10 @@ function PDFItem({ doc, onDocumentsChanged }) {
         @keyframes pulse {
           0%, 100% { opacity: 0.5; }
           50% { opacity: 1; }
+        }
+        @keyframes indexingSweep {
+          0% { transform: translateX(-120%); }
+          100% { transform: translateX(260%); }
         }
       `}</style>
     </div>

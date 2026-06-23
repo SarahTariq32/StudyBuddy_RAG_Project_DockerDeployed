@@ -35,6 +35,13 @@ function Sidebar() {
   const [notificationType, setNotificationType] = useState('error')
   const pollRef = useRef(null)
 
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }
+
   async function refreshDocs() {
     const data = await listPDFs()
     setDocs(data)
@@ -54,20 +61,20 @@ function Sidebar() {
       }
 
       setDocs(data)
+      writeDocsCache(data)
       setIsLoadingDocs(false)
-      const allReady = data.every(d => d.status === 'ready')
+      const hasProcessing = data.some(d => d.status === 'processing')
       
       // Switch to slower polling after 5 fast polls
       if (fastPollCount >= 5 && interval === 1000) {
-        clearInterval(pollRef.current)
+        stopPolling()
         startPolling(3000) // Switch to 3s interval
         return
       }
       
       fastPollCount++
-      if (allReady) {
-        clearInterval(pollRef.current)
-        pollRef.current = null
+      if (!hasProcessing) {
+        stopPolling()
       }
     }, interval)
   }
@@ -99,7 +106,7 @@ function Sidebar() {
       })
 
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current)
+      stopPolling()
     }
   }, [])
 
@@ -117,7 +124,7 @@ function Sidebar() {
       if (newDoc && newDoc.id) {
         setDocs(prev => [...prev, newDoc])
         startPolling()
-        setNotification(`✓ ${file.name} uploaded. Indexing in progress...`)
+        setNotification(`${file.name} uploaded. Indexing in progress...`)
         setNotificationType('success')
       }
     } catch (err) {
