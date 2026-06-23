@@ -60,15 +60,37 @@ function PDFItem({ doc, onDocumentsChanged }) {
   const [isEditing, setIsEditing] = useState(false)
   const [draftName, setDraftName] = useState(doc.filename)
   const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteProgress, setDeleteProgress] = useState(0)
 
   useEffect(() => {
     setDraftName(doc.filename)
   }, [doc.filename])
 
   async function handleDelete() {
-    if (!isProcessing) {
-      await deletePDF(doc.id)
-      onDocumentsChanged()
+    if (!isDeleting) {
+      setIsDeleting(true)
+      setDeleteProgress(0)
+      
+      // Animate progress bar
+      const interval = setInterval(() => {
+        setDeleteProgress(prev => Math.min(prev + Math.random() * 40, 90))
+      }, 100)
+      
+      try {
+        await deletePDF(doc.id)
+        setDeleteProgress(100)
+        clearInterval(interval)
+        
+        // Wait for animation to complete before refreshing
+        setTimeout(() => {
+          onDocumentsChanged()
+        }, 400)
+      } catch (err) {
+        clearInterval(interval)
+        setIsDeleting(false)
+        setDeleteProgress(0)
+      }
     }
   }
 
@@ -227,32 +249,59 @@ function PDFItem({ doc, onDocumentsChanged }) {
           </button>
         )}
 
-        <button
-          onClick={handleDelete}
-          disabled={isProcessing || isSaving}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: isProcessing ? 'rgba(100,150,255,0.3)' : 'rgba(255, 100, 120, 0.7)',
-            cursor: isProcessing ? 'not-allowed' : 'pointer',
-            fontSize: '1.1rem',
-            flexShrink: 0,
+        {isDeleting ? (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '0.3rem',
             padding: '0.25rem 0.35rem',
-            transition: 'all 0.3s ease',
-          }}
-          onMouseEnter={(e) => {
-            if (!isProcessing) {
-              e.target.style.color = 'rgba(255, 80, 100, 1)'
-              e.target.style.textShadow = '0 0 10px rgba(255, 100, 120, 0.4)'
-            }
-          }}
-          onMouseLeave={(e) => {
-            e.target.style.color = 'rgba(255, 100, 120, 0.7)'
-            e.target.style.textShadow = 'none'
-          }}
-        >
-          ✕
-        </button>
+            minWidth: '32px',
+          }}>
+            <div style={{
+              width: '24px',
+              height: '3px',
+              background: 'rgba(255, 100, 120, 0.2)',
+              borderRadius: '2px',
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                height: '100%',
+                background: 'linear-gradient(90deg, rgba(255, 100, 120, 0.8), rgba(255, 150, 170, 0.8))',
+                width: `${deleteProgress}%`,
+                transition: 'width 0.1s ease-out',
+                borderRadius: '2px',
+              }} />
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={handleDelete}
+            disabled={isDeleting || isSaving}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: isDeleting ? 'rgba(100,150,255,0.3)' : 'rgba(255, 100, 120, 0.7)',
+              cursor: isDeleting ? 'not-allowed' : 'pointer',
+              fontSize: '1.1rem',
+              flexShrink: 0,
+              padding: '0.25rem 0.35rem',
+              transition: 'all 0.3s ease',
+            }}
+            onMouseEnter={(e) => {
+              if (!isDeleting) {
+                e.target.style.color = 'rgba(255, 80, 100, 1)'
+                e.target.style.textShadow = '0 0 10px rgba(255, 100, 120, 0.4)'
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.color = 'rgba(255, 100, 120, 0.7)'
+              e.target.style.textShadow = 'none'
+            }}
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       <style>{`

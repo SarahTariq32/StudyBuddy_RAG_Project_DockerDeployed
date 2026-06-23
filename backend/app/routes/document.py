@@ -6,7 +6,16 @@ from threading import Thread
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
 
-from app.config import MAX_PDFS, PDF_STORAGE_PATH, PARENT_CHUNK_SIZE, CHILD_CHUNK_SIZE, CHUNK_OVERLAP
+from app.config import (
+    MAX_PDFS,
+    PDF_STORAGE_PATH,
+    PARENT_CHUNK_SIZE,
+    CHILD_CHUNK_SIZE,
+    CHUNK_OVERLAP,
+    MAX_CHILD_CHUNKS,
+    MAX_PDF_PAGES,
+    MAX_TEXT_CHARS,
+)
 from app.database import get_connection
 # from app.schemas import DocumentOut
 from app.schemas import DocumentOut, DocumentRenameRequest
@@ -21,6 +30,28 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 os.makedirs(PDF_STORAGE_PATH, exist_ok=True)
 
 
+def _document_exists(doc_id: str) -> bool:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT 1 FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def _cleanup_deleted_document(doc_id: str, file_path: str) -> None:
+    try:
+        vector_store.delete_document(doc_id)
+    except Exception as e:
+        print(f"Chroma cleanup failed for {doc_id}: {e}")
+
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+    except Exception as e:
+        print(f"File cleanup failed for {doc_id}: {e}")
+
+
 def index_in_background(doc_id, save_path, filename):
     """
     Runs in a background thread after the upload response is already sent.
@@ -28,18 +59,50 @@ def index_in_background(doc_id, save_path, filename):
     Updates SQLite status from 'processing' to 'ready' when done.
     """
     try:
-        text = load_single_pdf(save_path)
+        if not _document_exists(doc_id):
+            return
+
+        text = load_single_pdf(save_path, max_pages=MAX_PDF_PAGES)
+        if len(text) > MAX_TEXT_CHARS:
+            text = text[:MAX_TEXT_CHARS]
+
+        if not _document_exists(doc_id):
+            return
+
         if not text.strip():
             conn = get_connection()
             conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
             conn.commit()
             conn.close()
+            try:
+                if os.path.exists(save_path):
+                    os.remove(save_path)
+            except Exception:
+                pass
             return
 
         parent_chunks = create_parent_chunks(text, PARENT_CHUNK_SIZE, CHUNK_OVERLAP)
         child_chunks, parent_mapping = create_child_chunks(parent_chunks, CHILD_CHUNK_SIZE, CHUNK_OVERLAP)
+
+        if len(child_chunks) > MAX_CHILD_CHUNKS:
+            # Keep representative coverage across the document instead of only early pages.
+            total = len(child_chunks)
+            step = max(total / MAX_CHILD_CHUNKS, 1)
+            indices = [min(int(i * step), total - 1) for i in range(MAX_CHILD_CHUNKS)]
+            child_chunks = [child_chunks[i] for i in indices]
+            parent_mapping = [parent_mapping[i] for i in indices]
+
+        if not _document_exists(doc_id):
+            return
+
         embeddings = create_embeddings(child_chunks)
+        if not _document_exists(doc_id):
+            return
+
         vector_store.add_chunks(doc_id, child_chunks, parent_chunks, parent_mapping, embeddings)
+
+        if not _document_exists(doc_id):
+            return
 
         conn = get_connection()
         conn.execute("UPDATE documents SET status = 'ready' WHERE id = ?", (doc_id,))
@@ -47,6 +110,11 @@ def index_in_background(doc_id, save_path, filename):
         conn.close()
 
     except Exception as e:
+        if _document_exists(doc_id):
+            conn = get_connection()
+            conn.execute("UPDATE documents SET status = 'error' WHERE id = ?", (doc_id,))
+            conn.commit()
+            conn.close()
         print(f"Indexing failed for {doc_id}: {e}")
 
 
@@ -187,12 +255,9 @@ def delete_document(doc_id: str):
         conn.close()
         raise HTTPException(status_code=404, detail="Document not found.")
 
-    vector_store.delete_document(doc_id)
-
     file_path = os.path.join(PDF_STORAGE_PATH, f"{doc_id}.pdf")
-    if os.path.exists(file_path):
-        os.remove(file_path)
-
     conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
     conn.commit()
     conn.close()
+
+    Thread(target=_cleanup_deleted_document, args=(doc_id, file_path), daemon=True).start()

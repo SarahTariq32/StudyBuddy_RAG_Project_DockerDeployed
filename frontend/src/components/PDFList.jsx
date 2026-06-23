@@ -19,7 +19,11 @@
 
 import PDFItem from './PDFItem.jsx'
 
-function PDFList({ docs, onDocumentsChanged }) {
+function PDFList({ docs, isLoading, onDocumentsChanged }) {
+  if (isLoading) {
+    return null
+  }
+
   if (docs.length === 0) {
     return (
       <p style={{

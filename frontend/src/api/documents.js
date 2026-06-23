@@ -1,7 +1,91 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const ENV_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_BASE_STORAGE_KEY = 'rag_api_base'
+
+function getStoredApiBase() {
+  try {
+    return localStorage.getItem(API_BASE_STORAGE_KEY)
+  } catch (_) {
+    return null
+  }
+}
+
+function storeApiBase(base) {
+  try {
+    localStorage.setItem(API_BASE_STORAGE_KEY, base)
+  } catch (_) {
+    // Ignore storage errors (private mode / blocked storage).
+  }
+}
+
+function clearStoredApiBase() {
+  try {
+    localStorage.removeItem(API_BASE_STORAGE_KEY)
+  } catch (_) {
+    // Ignore storage errors.
+  }
+}
+
+function getApiBaseCandidates() {
+  const storedBase = getStoredApiBase()
+  const candidates = [storedBase, 'http://127.0.0.1:8000', ENV_BASE_URL, 'http://localhost:8000']
+
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    candidates.unshift(`http://${window.location.hostname}:8000`)
+  }
+
+  return [...new Set(candidates.filter(Boolean))]
+}
+
+function isWorkingLoopback(base) {
+  return base === 'http://127.0.0.1:8000'
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 1500) {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+function isNetworkError(err) {
+  return err?.name === 'AbortError' || err instanceof TypeError
+}
+
+async function requestWithBaseFallback(path, options = {}, timeoutMs = null) {
+  let lastError = null
+
+  for (const base of getApiBaseCandidates()) {
+    try {
+      const url = `${base}${path}`
+      const res = timeoutMs == null
+        ? await fetch(url, options)
+        : await fetchWithTimeout(url, options, timeoutMs)
+
+      storeApiBase(base)
+      return res
+    } catch (err) {
+      if (!isNetworkError(err)) {
+        throw err
+      }
+      lastError = err
+    }
+  }
+
+  throw new Error(`Failed to reach backend on all base URLs: ${lastError?.message || 'unknown error'}`)
+}
 
 export async function listPDFs() {
-  const res = await fetch(`${BASE_URL}/documents`)
+  const res = await requestWithBaseFallback('/documents', { cache: 'no-store' }, 2500)
+  if (!res.ok) {
+    throw new Error(`Failed to load PDFs: ${res.status} ${res.statusText}`)
+  }
   return res.json()
 }
 
@@ -19,10 +103,10 @@ export async function uploadPDF(file) {
   const formData = new FormData()
   formData.append('file', file)
 
-  const res = await fetch(`${BASE_URL}/documents`, {
+  const res = await requestWithBaseFallback('/documents', {
     method: 'POST',
     body: formData,
-  })
+  }, 30000)
 
   if (!res.ok) {
     let message = 'Upload failed'
@@ -33,11 +117,18 @@ export async function uploadPDF(file) {
     throw new Error(message)
   }
 
+  if (isWorkingLoopback(getStoredApiBase())) {
+    clearStoredApiBase()
+  }
+
   return res.json()
 }
 
 export async function deletePDF(id) {
-  await fetch(`${BASE_URL}/documents/${id}`, { method: 'DELETE' })
+  const res = await requestWithBaseFallback(`/documents/${id}`, { method: 'DELETE' }, 5000)
+  if (!res.ok) {
+    throw new Error(`Delete failed: ${res.status} ${res.statusText}`)
+  }
 }
 
 // export async function renamePDF(id, filename) {
@@ -74,21 +165,21 @@ export async function renamePDF(id, filename) {
   const cleanName = filename.trim()
 
   const attempts = [
-    { url: BASE_URL + '/documents/' + id, method: 'PATCH', body: { filename: cleanName } },
-    { url: BASE_URL + '/documents/' + id, method: 'PATCH', body: { name: cleanName } },
-    { url: BASE_URL + '/documents/' + id, method: 'PUT', body: { filename: cleanName } },
-    { url: BASE_URL + '/documents/' + id, method: 'PUT', body: { name: cleanName } },
-    { url: BASE_URL + '/documents/' + id + '/rename', method: 'PATCH', body: { filename: cleanName } },
-    { url: BASE_URL + '/documents/' + id + '/rename', method: 'PATCH', body: { new_name: cleanName } },
-    { url: BASE_URL + '/documents/' + id + '/rename', method: 'PUT', body: { filename: cleanName } }
+    { path: '/documents/' + id, method: 'PATCH', body: { filename: cleanName } },
+    { path: '/documents/' + id, method: 'PATCH', body: { name: cleanName } },
+    { path: '/documents/' + id, method: 'PUT', body: { filename: cleanName } },
+    { path: '/documents/' + id, method: 'PUT', body: { name: cleanName } },
+    { path: '/documents/' + id + '/rename', method: 'PATCH', body: { filename: cleanName } },
+    { path: '/documents/' + id + '/rename', method: 'PATCH', body: { new_name: cleanName } },
+    { path: '/documents/' + id + '/rename', method: 'PUT', body: { filename: cleanName } }
   ]
 
   for (const attempt of attempts) {
-    const res = await fetch(attempt.url, {
+    const res = await requestWithBaseFallback(attempt.path, {
       method: attempt.method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(attempt.body)
-    })
+    }, 5000)
 
     if (res.ok) {
       const contentType = res.headers.get('content-type') || ''

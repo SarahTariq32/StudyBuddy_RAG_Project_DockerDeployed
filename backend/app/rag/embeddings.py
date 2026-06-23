@@ -11,5 +11,10 @@ def create_embeddings(texts: list[str]) -> list[list[float]]:
     Encode a list of strings into normalized embedding vectors.
     Returns a list of float lists (one per input text).
     """
-    embeddings = _model.encode(texts, normalize_embeddings=True)
+    embeddings = _model.encode(
+        texts,
+        normalize_embeddings=True,
+        batch_size=64,
+        show_progress_bar=False,
+    )
     return embeddings.tolist()

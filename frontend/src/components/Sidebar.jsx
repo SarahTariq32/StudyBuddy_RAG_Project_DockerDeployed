@@ -6,9 +6,31 @@ import UploadButton from './UploadButton.jsx'
 import NotificationToast from './NotificationToast.jsx'
 
 const MAX_PDFS = 5
+const INITIAL_LOAD_RETRIES = 8
+const DOCS_CACHE_KEY = 'rag_docs_cache'
+
+function readDocsCache() {
+  try {
+    const raw = sessionStorage.getItem(DOCS_CACHE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch (_) {
+    return []
+  }
+}
+
+function writeDocsCache(docs) {
+  try {
+    sessionStorage.setItem(DOCS_CACHE_KEY, JSON.stringify(docs))
+  } catch (_) {
+    // Ignore storage errors.
+  }
+}
 
 function Sidebar() {
-  const [docs, setDocs] = useState([])
+  const [docs, setDocs] = useState(() => readDocsCache())
+  const [isLoadingDocs, setIsLoadingDocs] = useState(() => readDocsCache().length === 0)
   const [notification, setNotification] = useState('')
   const [notificationType, setNotificationType] = useState('error')
   const pollRef = useRef(null)
@@ -16,27 +38,66 @@ function Sidebar() {
   async function refreshDocs() {
     const data = await listPDFs()
     setDocs(data)
+    writeDocsCache(data)
     return data
   }
 
-  function startPolling() {
+  function startPolling(interval = 1000) {
     if (pollRef.current) return
+    let fastPollCount = 0
     pollRef.current = setInterval(async () => {
-      const data = await listPDFs()
+      let data = []
+      try {
+        data = await listPDFs()
+      } catch (_) {
+        return
+      }
+
       setDocs(data)
+      setIsLoadingDocs(false)
       const allReady = data.every(d => d.status === 'ready')
+      
+      // Switch to slower polling after 5 fast polls
+      if (fastPollCount >= 5 && interval === 1000) {
+        clearInterval(pollRef.current)
+        startPolling(3000) // Switch to 3s interval
+        return
+      }
+      
+      fastPollCount++
       if (allReady) {
         clearInterval(pollRef.current)
         pollRef.current = null
       }
-    }, 3000)
+    }, interval)
+  }
+
+  async function loadDocsWithRetry() {
+    let attempt = 0
+    while (attempt < INITIAL_LOAD_RETRIES) {
+      try {
+        const data = await refreshDocs()
+        return data
+      } catch (_) {
+        attempt += 1
+        const delayMs = Math.min(500 * attempt, 2000)
+        await new Promise(resolve => setTimeout(resolve, delayMs))
+      }
+    }
+    throw new Error('Could not load PDFs after retries')
   }
 
   useEffect(() => {
-    refreshDocs().then(data => {
-      const hasProcessing = data.some(d => d.status === 'processing')
-      if (hasProcessing) startPolling()
-    })
+    loadDocsWithRetry()
+      .then(data => {
+        setIsLoadingDocs(false)
+        const hasProcessing = data.some(d => d.status === 'processing')
+        if (hasProcessing) startPolling()
+      })
+      .catch(() => {
+        startPolling(1000)
+      })
+
     return () => {
       if (pollRef.current) clearInterval(pollRef.current)
     }
@@ -56,7 +117,7 @@ function Sidebar() {
       if (newDoc && newDoc.id) {
         setDocs(prev => [...prev, newDoc])
         startPolling()
-        setNotification(`✓ ${file.name} uploaded successfully`)
+        setNotification(`✓ ${file.name} uploaded. Indexing in progress...`)
         setNotificationType('success')
       }
     } catch (err) {
@@ -131,7 +192,18 @@ function Sidebar() {
       </div>
 
       <UploadButton onUpload={handleUpload} disabled={docs.length >= MAX_PDFS} />
-      <PDFList docs={docs} onDocumentsChanged={refreshDocs} />
+      {isLoadingDocs && docs.length === 0 && (
+        <p style={{
+          color: 'rgba(120, 170, 255, 0.7)',
+          fontSize: '0.78rem',
+          letterSpacing: '0.04em',
+          margin: '0.25rem 0 0.1rem',
+          textAlign: 'center',
+        }}>
+          Loading PDFs...
+        </p>
+      )}
+      <PDFList docs={docs} isLoading={isLoadingDocs} onDocumentsChanged={refreshDocs} />
 
       {/* Notification Toast */}
       <NotificationToast
