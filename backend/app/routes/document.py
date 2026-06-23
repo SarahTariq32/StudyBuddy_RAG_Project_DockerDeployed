@@ -14,7 +14,8 @@ from app.rag.loader import load_single_pdf
 from app.rag.chunking import create_parent_chunks, create_child_chunks
 from app.rag.embeddings import create_embeddings
 from app.rag import vector_store
-
+import hashlib
+import sqlite3
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 os.makedirs(PDF_STORAGE_PATH, exist_ok=True)
@@ -60,18 +61,41 @@ def upload_document(file: UploadFile = File(...)):
         conn.close()
         raise HTTPException(status_code=400, detail=f"Maximum of {MAX_PDFS} PDFs already uploaded.")
 
+    file_bytes = file.file.read()
+    if not file_bytes:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    content_hash = hashlib.sha256(file_bytes).hexdigest()
+
+    existing = conn.execute(
+        "SELECT id, filename FROM documents WHERE content_hash = ?",
+        (content_hash,),
+    ).fetchone()
+    if existing:
+        conn.close()
+        raise HTTPException(
+            status_code=409,
+            detail=f"This PDF is already added: {existing['filename']}",
+        )
+
     doc_id = str(uuid.uuid4())
     save_path = os.path.join(PDF_STORAGE_PATH, f"{doc_id}.pdf")
     with open(save_path, "wb") as f:
-        f.write(file.file.read())
+        f.write(file_bytes)
 
     uploaded_at = datetime.now(timezone.utc).isoformat()
 
     # Save record immediately with status='processing'
-    conn.execute(
-        "INSERT INTO documents (id, filename, uploaded_at, status) VALUES (?, ?, ?, ?)",
-        (doc_id, file.filename, uploaded_at, "processing"),
-    )
+    try:
+        conn.execute(
+            "INSERT INTO documents (id, filename, uploaded_at, status, content_hash) VALUES (?, ?, ?, ?, ?)",
+            (doc_id, file.filename, uploaded_at, "processing", content_hash),
+        )
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise HTTPException(status_code=409, detail="This PDF is already added.")
+
     conn.commit()
     conn.close()
 

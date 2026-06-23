@@ -1,62 +1,31 @@
 
-// import { useState } from 'react'
-
-// function UploadButton({ onUpload, disabled }) {
-//   const [uploading, setUploading] = useState(false)
-
-//   async function handleFileChange(e) {
-//     const file = e.target.files[0]
-//     if (!file) return
-//     setUploading(true)
-//     await onUpload(file)
-//     setUploading(false)
-//     e.target.value = ''
-//   }
-
-//   const isDisabled = disabled || uploading
-
-//   return (
-//     <label style={{
-//       display: 'block',
-//       padding: '0.6rem 1rem',
-//       background: isDisabled ? '#444' : '#646cff',
-//       color: '#fff',
-//       borderRadius: '6px',
-//       cursor: isDisabled ? 'not-allowed' : 'pointer',
-//       textAlign: 'center',
-//       fontSize: '0.9rem'
-//     }}>
-//       {uploading ? 'Uploading...' : disabled ? 'Limit Reached' : '+ Upload PDF'}
-//       <input
-//         type="file"
-//         accept=".pdf"
-//         onChange={handleFileChange}
-//         disabled={isDisabled}
-//         style={{ display: 'none' }}
-//       />
-//     </label>
-//   )
-// }
-
-// export default UploadButton
-
-
-
 import { useState } from 'react'
 
 function UploadButton({ onUpload, disabled }) {
   const [uploading, setUploading] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
 
-  async function handleFileChange(e) {
+  // async function handleFileChange(e) {
+  //   const file = e.target.files[0]
+  //   if (!file) return
+  //   setUploading(true)
+  //   await onUpload(file)
+  //   setUploading(false)
+  //   e.target.value = ''
+  // }
+    async function handleFileChange(e) {
     const file = e.target.files[0]
     if (!file) return
     setUploading(true)
-    await onUpload(file)
-    setUploading(false)
-    e.target.value = ''
+    try {
+      await onUpload(file)
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
   }
 
+  
   const isDisabled = disabled || uploading
 
   return (

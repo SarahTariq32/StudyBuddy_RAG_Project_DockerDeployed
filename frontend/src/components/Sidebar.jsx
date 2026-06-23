@@ -1,83 +1,16 @@
-// import { useEffect, useState, useRef } from 'react'
-// import { listPDFs, uploadPDF, deletePDF } from '../api/documents.js'
-// import PDFList from './PDFList.jsx'
-// import UploadButton from './UploadButton.jsx'
-
-// const MAX_PDFS = 5
-
-// function Sidebar() {
-//   const [docs, setDocs] = useState([])
-//   const pollRef = useRef(null)
-
-//   function startPolling() {
-//     if (pollRef.current) return
-//     pollRef.current = setInterval(async () => {
-//       const data = await listPDFs()
-//       setDocs(data)
-//       const allReady = data.every(d => d.status === 'ready')
-//       if (allReady) {
-//         clearInterval(pollRef.current)
-//         pollRef.current = null
-//       }
-//     }, 3000)
-//   }
-
-//   useEffect(() => {
-//     listPDFs().then(data => {
-//       setDocs(data)
-//       const hasProcessing = data.some(d => d.status === 'processing')
-//       if (hasProcessing) startPolling()
-//     })
-//     return () => {
-//       if (pollRef.current) clearInterval(pollRef.current)
-//     }
-//   }, [])
-
-//   async function handleUpload(file) {
-//     const newDoc = await uploadPDF(file)
-//     if (newDoc && newDoc.id) {
-//       setDocs(prev => [...prev, newDoc])
-//       startPolling()
-//     }
-//   }
-
-//   async function handleDelete(id) {
-//     await deletePDF(id)
-//     setDocs(prev => prev.filter(doc => doc.id !== id))
-//   }
-
-//   return (
-//     <div style={{
-//       width: '240px',
-//       height: '100vh',
-//       background: '#141414',
-//       padding: '1.5rem 1rem',
-//       borderRight: '1px solid #2a2a2a',
-//       display: 'flex',
-//       flexDirection: 'column',
-//       gap: '1rem',
-//       overflow: 'hidden'
-//     }}>
-//       <h2 style={{ color: '#fff', fontSize: '1rem', margin: 0 }}>Your PDFs</h2>
-//       <UploadButton onUpload={handleUpload} disabled={docs.length >= MAX_PDFS} />
-//       <PDFList docs={docs} onDelete={handleDelete} />
-//     </div>
-//   )
-// }
-
-// export default Sidebar
-
-
 
 import { useEffect, useState, useRef } from 'react'
 import { listPDFs, uploadPDF } from '../api/documents.js'
 import PDFList from './PDFList.jsx'
 import UploadButton from './UploadButton.jsx'
+import NotificationToast from './NotificationToast.jsx'
 
 const MAX_PDFS = 5
 
 function Sidebar() {
   const [docs, setDocs] = useState([])
+  const [notification, setNotification] = useState('')
+  const [notificationType, setNotificationType] = useState('error')
   const pollRef = useRef(null)
 
   async function refreshDocs() {
@@ -109,11 +42,26 @@ function Sidebar() {
     }
   }, [])
 
-  async function handleUpload(file) {
-    const newDoc = await uploadPDF(file)
-    if (newDoc && newDoc.id) {
-      setDocs(prev => [...prev, newDoc])
-      startPolling()
+  // async function handleUpload(file) {
+  //   const newDoc = await uploadPDF(file)
+  //   if (newDoc && newDoc.id) {
+  //     setDocs(prev => [...prev, newDoc])
+  //     startPolling()
+  //   }
+  // }
+
+    async function handleUpload(file) {
+    try {
+      const newDoc = await uploadPDF(file)
+      if (newDoc && newDoc.id) {
+        setDocs(prev => [...prev, newDoc])
+        startPolling()
+        setNotification(`✓ ${file.name} uploaded successfully`)
+        setNotificationType('success')
+      }
+    } catch (err) {
+      setNotification(err.message || 'Upload failed')
+      setNotificationType('error')
     }
   }
 
@@ -184,6 +132,13 @@ function Sidebar() {
 
       <UploadButton onUpload={handleUpload} disabled={docs.length >= MAX_PDFS} />
       <PDFList docs={docs} onDocumentsChanged={refreshDocs} />
+
+      {/* Notification Toast */}
+      <NotificationToast
+        message={notification}
+        type={notificationType}
+        onClose={() => setNotification('')}
+      />
 
       {/* Bottom fade */}
       <div style={{

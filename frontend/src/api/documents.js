@@ -5,13 +5,34 @@ export async function listPDFs() {
   return res.json()
 }
 
+// export async function uploadPDF(file) {
+//   const formData = new FormData()
+//   formData.append('file', file)
+//   const res = await fetch(`${BASE_URL}/documents`, {
+//     method: 'POST',
+//     body: formData,
+//   })
+//   return res.json()
+// }
+
 export async function uploadPDF(file) {
   const formData = new FormData()
   formData.append('file', file)
+
   const res = await fetch(`${BASE_URL}/documents`, {
     method: 'POST',
     body: formData,
   })
+
+  if (!res.ok) {
+    let message = 'Upload failed'
+    try {
+      const data = await res.json()
+      message = data?.detail || message
+    } catch (_) {}
+    throw new Error(message)
+  }
+
   return res.json()
 }
 
