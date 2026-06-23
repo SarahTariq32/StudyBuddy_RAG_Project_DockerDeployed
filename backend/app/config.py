@@ -37,9 +37,10 @@ MAX_TEXT_CHARS = int(os.getenv("MAX_TEXT_CHARS", "120000"))
 MAX_PARENT_TEXT_IN_METADATA = int(os.getenv("MAX_PARENT_TEXT_IN_METADATA", "900"))
 
 # --- Retrieval ---
-TOP_K = 3
+TOP_K = 6
 # 0 = skip multi-query rewrite (fastest). 4 = better recall, slower (extra LLM call).
-NUM_MULTI_QUERIES = 0
+# Set to 1 for one alternative phrasing—good balance of recall and speed.
+NUM_MULTI_QUERIES = 1
 MAX_CONTEXT_PARENTS = 10
 
 # --- Conversation Memory ---

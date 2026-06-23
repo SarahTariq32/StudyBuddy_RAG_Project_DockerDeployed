@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
 from app.history.chat_history import get_recent_history, save_message
-from app.rag.generator import NOT_ENOUGH, generate_answer
+from app.rag.generator import NOT_ENOUGH, generate_answer, non_rag_reply_for_small_talk
 from app.rag.pipeline import retrieve_context
 from app.schemas import AskRequest, AskResponse
 
@@ -73,8 +73,14 @@ def ask(body: AskRequest):
     if not question:
         raise HTTPException(status_code=422, detail="question is required")
 
-    # Save user message first, so history is preserved even if LLM fails
+    # Save user message first, so history is preserved even if downstream fails.
     save_message(session_id, "user", question)
+
+    # Handle lightweight chat immediately without invoking retrieval or LLM.
+    small_talk_answer = non_rag_reply_for_small_talk(question)
+    if small_talk_answer is not None:
+        save_message(session_id, "assistant", small_talk_answer)
+        return AskResponse(answer=small_talk_answer)
 
     history = get_recent_history(session_id)
     context = retrieve_context(question)
