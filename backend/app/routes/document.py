@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 
 from app.config import (
     MAX_PDFS,
+    MAX_FILE_SIZE_MB,
     PDF_STORAGE_PATH,
     PARENT_CHUNK_SIZE,
     CHILD_CHUNK_SIZE,
@@ -104,7 +105,7 @@ def index_in_background(doc_id, save_path, filename):
         if not _document_exists(doc_id):
             return
 
-        vector_store.add_chunks(doc_id, child_chunks, parent_chunks, parent_mapping, embeddings)
+        vector_store.add_chunks(doc_id, filename, child_chunks, parent_chunks, parent_mapping, embeddings)
 
         if not _document_exists(doc_id):
             return
@@ -138,6 +139,14 @@ def upload_document(file: UploadFile = File(...)):
     if not file_bytes:
         conn.close()
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
+    if len(file_bytes) > max_bytes:
+        conn.close()
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum allowed size is {MAX_FILE_SIZE_MB} MB.",
+        )
 
     content_hash = hashlib.sha256(file_bytes).hexdigest()
 

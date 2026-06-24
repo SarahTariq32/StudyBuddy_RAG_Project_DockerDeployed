@@ -15,27 +15,6 @@ def save_message(session_id: str, role: str, message: str) -> None:
     conn.close()
 
 
-# def get_recent_history(session_id: str) -> list[dict]:
-#     """
-#     Return the last N_MESSAGES rows for this session, oldest first.
-#     Each item is {"role": ..., "message": ...}.
-#     """
-#     conn = get_connection()
-#     rows = conn.execute(
-#         """
-#         SELECT role, message FROM chat_history
-#         WHERE session_id = ?
-#         ORDER BY created_at DESC, id DESC
-#         LIMIT ?
-#         """,
-#         (session_id, N_MESSAGES),
-#     ).fetchall()
-#     conn.close()
-#     return [{"role": row["role"], "message": row["message"]} for row in reversed(rows)]
-
-
-
-# ...existing code...
 def get_recent_history(session_id: str) -> list[dict]:
     """
     Return recent history oldest->newest.
@@ -57,4 +36,3 @@ def get_recent_history(session_id: str) -> list[dict]:
     conn.close()
 
     return [{"role": row["role"], "message": row["message"]} for row in reversed(rows)]
-# ...existing code...

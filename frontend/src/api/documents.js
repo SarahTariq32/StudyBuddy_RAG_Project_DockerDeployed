@@ -1,6 +1,13 @@
 const ENV_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const API_BASE_STORAGE_KEY = 'rag_api_base'
 
+// True when VITE_API_URL points at a real remote host (not localhost / 127.x).
+// In this case we never try loopback addresses — they can never reach the backend.
+const IS_REMOTE_ENV =
+  ENV_BASE_URL &&
+  !ENV_BASE_URL.includes('localhost') &&
+  !ENV_BASE_URL.includes('127.0.0.1')
+
 function getStoredApiBase() {
   try {
     return localStorage.getItem(API_BASE_STORAGE_KEY)
@@ -26,6 +33,19 @@ function clearStoredApiBase() {
 }
 
 function getApiBaseCandidates() {
+  // In production (remote URL configured), only ever try the configured URL.
+  // Trying localhost first would waste the timeout on every single request.
+  if (IS_REMOTE_ENV) {
+    const storedBase = getStoredApiBase()
+    // Only use a stored base if it matches the configured remote (prevents
+    // stale localhost entries from a previous local dev session).
+    const validStored = storedBase && !storedBase.includes('localhost') && !storedBase.includes('127.0.0.1')
+      ? storedBase
+      : null
+    return [...new Set([validStored, ENV_BASE_URL].filter(Boolean))]
+  }
+
+  // Local dev: try stored winner first, then loopback variants, then env URL.
   const storedBase = getStoredApiBase()
   const candidates = [storedBase, 'http://127.0.0.1:8000', ENV_BASE_URL, 'http://localhost:8000']
 
@@ -36,8 +56,8 @@ function getApiBaseCandidates() {
   return [...new Set(candidates.filter(Boolean))]
 }
 
-function isWorkingLoopback(base) {
-  return base === 'http://127.0.0.1:8000'
+function isLoopbackBase(base) {
+  return base === 'http://127.0.0.1:8000' || base === 'http://localhost:8000'
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 1500) {
@@ -117,7 +137,9 @@ export async function uploadPDF(file) {
     throw new Error(message)
   }
 
-  if (isWorkingLoopback(getStoredApiBase())) {
+  // In local dev, clear a stored loopback base after a successful upload so
+  // the next request re-discovers the fastest candidate.
+  if (!IS_REMOTE_ENV && isLoopbackBase(getStoredApiBase())) {
     clearStoredApiBase()
   }
 

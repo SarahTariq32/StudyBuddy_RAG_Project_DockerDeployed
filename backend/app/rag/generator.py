@@ -37,17 +37,27 @@ def non_rag_reply_for_small_talk(question: str) -> str | None:
     return None
 
 
-def build_prompt(question: str, context_parents: list[str], history: list[dict]) -> str:
+def build_prompt(question: str, context_items: list[dict], history: list[dict]) -> str:
     history_lines = [f"{msg['role']}: {msg['message']}" for msg in history]
     history_text = "\n".join(history_lines) if history_lines else "(none)"
 
-    context_text = "\n\n---\n\n".join(context_parents) if context_parents else "(none)"
+    if context_items:
+        context_blocks = []
+        for item in context_items:
+            source = item.get("source", "")
+            text = item.get("text", "")
+            label = f"[Source: {source}]\n" if source else ""
+            context_blocks.append(f"{label}{text}")
+        context_text = "\n\n---\n\n".join(context_blocks)
+    else:
+        context_text = "(none)"
 
-    return f"""You are a helpful assistant for PDF-grounded Q&A.
+    return f"""You are a helpful study assistant for PDF-grounded Q&A.
 
 Use ONLY the provided Context. You can synthesize, summarize, and connect ideas across the provided context.
 Treat Conversation history as conversational memory, not as factual source.
 Do not use outside knowledge, guesses, assumptions, or fabricated facts.
+When the context contains source labels like [Source: filename.pdf], cite the relevant source(s) in your answer so the user knows which document the information came from.
 If Context is insufficient for the question, respond exactly with the fallback string below.
 
 If the context does not contain enough information to answer the question, reply with exactly this string and nothing else:
@@ -62,6 +72,6 @@ Context:
 Question: {question}"""
 
 
-def generate_answer(question: str, context_parents: list[str], history: list[dict]) -> str:
-    prompt = build_prompt(question, context_parents, history)
+def generate_answer(question: str, context_items: list[dict], history: list[dict]) -> str:
+    prompt = build_prompt(question, context_items, history)
     return get_llm_client().generate(prompt)

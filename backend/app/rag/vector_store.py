@@ -10,6 +10,7 @@ _collection = _client.get_or_create_collection(name="documents")
 
 def add_chunks(
     doc_id: str,
+    source: str,
     child_chunks: list[str],
     parent_chunks: list[str],
     parent_mapping: list[int],
@@ -22,6 +23,7 @@ def add_chunks(
       - its own embedding vector (used for similarity search)
       - metadata containing:
           doc_id      — which PDF this chunk came from (needed for deletion)
+          source      — original filename (used for source attribution in answers)
           parent_text — the full parent chunk text (returned at retrieval time
                         so the answer is grounded in a larger context window)
 
@@ -31,6 +33,7 @@ def add_chunks(
     metadatas = [
         {
             "doc_id": doc_id,
+            "source": source,
             "parent_text": parent_chunks[parent_mapping[i]][:MAX_PARENT_TEXT_IN_METADATA],
         }
         for i in range(len(child_chunks))
@@ -71,6 +74,9 @@ def search(query_embedding: list[float], top_k: int) -> list[dict]:
         if not hit.get("parent_text"):
             print(f"WARNING: Missing parent_text metadata in search hit index={i}")
         hit["distance"] = row_distances[i] if i < len(row_distances) else 1e9
+        # Gracefully handle chunks indexed before 'source' was added to metadata.
+        if not hit.get("source"):
+            hit["source"] = hit.get("doc_id", "unknown")
         scored_hits.append(hit)
 
     return scored_hits
