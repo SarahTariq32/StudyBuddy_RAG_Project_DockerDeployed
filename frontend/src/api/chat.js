@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
   const controller = new AbortController()
@@ -14,6 +14,10 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
 }
 
 function getAskBaseCandidates() {
+  if (BASE_URL.startsWith('/')) {
+    return [BASE_URL]
+  }
+
   const bases = [BASE_URL, 'http://127.0.0.1:8000', 'http://localhost:8000']
   if (typeof window !== 'undefined' && window.location?.hostname) {
     bases.unshift(`http://${window.location.hostname}:8000`)

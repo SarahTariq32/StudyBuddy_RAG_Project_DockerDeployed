@@ -1,4 +1,4 @@
-const ENV_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const ENV_BASE_URL = import.meta.env.VITE_API_URL || '/api'
 const API_BASE_STORAGE_KEY = 'rag_api_base'
 
 // True when VITE_API_URL points at a real remote host (not localhost / 127.x).
@@ -33,6 +33,10 @@ function clearStoredApiBase() {
 }
 
 function getApiBaseCandidates() {
+  if (ENV_BASE_URL.startsWith('/')) {
+    return [ENV_BASE_URL]
+  }
+
   // In production (remote URL configured), only ever try the configured URL.
   // Trying localhost first would waste the timeout on every single request.
   if (IS_REMOTE_ENV) {

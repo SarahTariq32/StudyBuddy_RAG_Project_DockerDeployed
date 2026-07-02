@@ -230,7 +230,7 @@ Docker will:
 
 ### 3. Access the App
 
-- **Frontend:** http://localhost:5173
+- **Frontend:** http://localhost:5173 (served through NGINX with `/api` reverse-proxied to the backend)
 - **Backend API:** http://localhost:8000
 - **Health Check:** `curl http://localhost:8000/health`
 

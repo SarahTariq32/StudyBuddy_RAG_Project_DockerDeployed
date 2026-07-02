@@ -4,10 +4,6 @@
 # (Hot reload, volume mounts, debug logging)
 
 services:
-  db:
-    ports:
-      - "8001:8000"
-
   backend:
     # Build with host's code for live development
     volumes:
@@ -33,23 +29,22 @@ services:
     build:
       context: ./frontend
       target: builder
+      args:
+        VITE_API_URL: /api
     
-    command: npm run dev -- --host 0.0.0.0
+    command: npm run dev -- --host 0.0.0.0 --port 4173 --strictPort
     
     volumes:
       # Mount source code for hot reload
       - ./frontend/src:/app/src
       # Don't mount node_modules to avoid conflicts
     
-    ports:
-      - "5173:5173"
-    
     networks:
       - rag-network
     
     environment:
-      # Browser runs on host machine, so API must be host-reachable.
-      VITE_API_URL: http://localhost:8000
+      # Browser traffic still enters through NGINX, even in the override stack.
+      VITE_API_URL: /api
 
 volumes:
   rag-data:

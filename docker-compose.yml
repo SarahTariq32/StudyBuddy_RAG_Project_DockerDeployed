@@ -2,8 +2,6 @@ services:
   # Vector Database Service (ChromaDB)
   db:
     image: chromadb/chroma:0.5.11
-    ports:
-      - "8001:8000"
     environment:
       IS_PERSISTENT: "TRUE"
       ANONYMIZED_TELEMETRY: "FALSE"
@@ -24,8 +22,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
     environment:
       # LLM Configuration
       LLM_PROVIDER: ${LLM_PROVIDER:-groq}
@@ -88,13 +84,9 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: http://localhost:8000
-    ports:
-      - "5173:5173"
-    environment:
-      # Backend API URL (service name in docker-compose network)
-      VITE_API_URL: http://backend:8000
-    
+        VITE_API_URL: /api
+    expose:
+      - "4173"
     networks:
       - rag-network
     
@@ -104,7 +96,28 @@ services:
         condition: service_healthy
     
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:5173/', (r) => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1));"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:4173/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # Public Reverse Proxy (only public entrypoint)
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - rag-network
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
