@@ -76,11 +76,17 @@ function ChatWindow({ topInset = 0 }) {
     setMessages(prev => [...prev, { role: 'user', text: question }])
     setLoading(true)
 
-    const data = await askQuestion(question, getSessionId())
-    const answer = data.answer ?? 'Something went wrong.'
-
-    setMessages(prev => [...prev, { role: 'assistant', text: answer }])
-    setLoading(false)
+    try {
+      const data = await askQuestion(question, getSessionId())
+      const answer = data.answer ?? 'Something went wrong.'
+      setMessages(prev => [...prev, { role: 'assistant', text: answer }])
+    } catch (err) {
+      console.error('Error asking question:', err)
+      const errorMsg = err?.message || 'Failed to get a response from backend. Please check if your LLM provider keys are configured properly.'
+      setMessages(prev => [...prev, { role: 'assistant', text: `⚠️ Error: ${errorMsg}` }])
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (

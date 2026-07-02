@@ -2,7 +2,7 @@
 
 A modern full-stack application that lets you upload PDF documents and ask natural language questions about them. Powered by Retrieval-Augmented Generation (RAG), it uses vector embeddings and semantic search to find relevant content from your PDFs and generates intelligent answers backed by source documents.
 
-**Live Demo:** https://studybuddy-frontend.vercel.app
+**Live Demo:** https://study-buddy-rag-project.vercel.app/
 
 ---
 
@@ -132,7 +132,7 @@ A modern full-stack application that lets you upload PDF documents and ask natur
 ### Deployment
 | Environment | Service |
 |-------------|---------|
-| **Backend** | Railway / Render / Fly.io (Docker) |
+| **Backend** | Railway / Fly.io (Docker) |
 | **Frontend** | Vercel (Next.js-agnostic SPA) |
 | **Vector DB** | Persistent volume (Railway) |
 
@@ -423,7 +423,7 @@ User asks: "What is the capital of France?"
     ↓
 Check if any PDFs are ready (if not: show "no docs" message)
     ↓
-Fetch conversation history (last 5 user turns)
+Fetch conversation history 
     ↓
 Rewrite question using history context
     → "What is the capital of France?" (if no history)

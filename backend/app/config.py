@@ -1,80 +1,85 @@
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv, dotenv_values # type: ignore
 
-load_dotenv()
+# Get base directory of the backend application
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Load environment variables normally
+load_dotenv(os.path.join(_BASE_DIR, ".env"))
+
+# Manually load the .env values as a dictionary to check for fallback values
+# if environment variables are set to empty strings (e.g. by Docker Compose)
+_env_file_vars = dotenv_values(os.path.join(_BASE_DIR, ".env"))
+
+def get_env_var(name: str, default: str = "") -> str:
+    """
+    Retrieve environment variable, falling back to .env file values if the 
+    variable is missing or set to an empty string in the system/container environment.
+    """
+    val = os.getenv(name)
+    if val is None or val.strip() == "":
+        val = _env_file_vars.get(name, "")
+    if val is None or val.strip() == "":
+        return default
+    return val.strip()
 
 # --- LLM Provider Selection ---
 # This one variable controls which provider the entire app uses.
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")
+LLM_PROVIDER = get_env_var("LLM_PROVIDER", "groq")
 
 # --- App Limits ---
 MAX_PDFS = 5
-# Maximum PDF upload size in megabytes.
-MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
+MAX_FILE_SIZE_MB = int(get_env_var("MAX_FILE_SIZE_MB", "50"))
 
 # --- Provider Credentials & Model Names ---
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_API_KEY = get_env_var("GEMINI_API_KEY", "")
+GEMINI_MODEL = get_env_var("GEMINI_MODEL", "gemini-2.0-flash")
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-
+GROQ_API_KEY = get_env_var("GROQ_API_KEY", "")
+GROQ_MODEL = get_env_var("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 # --- OpenRouter ---
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-8b-instruct:free")
+OPENROUTER_API_KEY = get_env_var("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = get_env_var("OPENROUTER_MODEL", "meta-llama/llama-3.3-8b-instruct:free")
+
 # --- Embedding Model ---
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
-EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "48"))
+EMBEDDING_BATCH_SIZE = int(get_env_var("EMBEDDING_BATCH_SIZE", "48"))
 
 # --- Chunking ---
 # Larger chunks reduce total embedding calls and speed up indexing.
-PARENT_CHUNK_SIZE = int(os.getenv("PARENT_CHUNK_SIZE", "1500"))
-CHILD_CHUNK_SIZE = int(os.getenv("CHILD_CHUNK_SIZE", "500"))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
+PARENT_CHUNK_SIZE = int(get_env_var("PARENT_CHUNK_SIZE", "1500"))
+CHILD_CHUNK_SIZE = int(get_env_var("CHILD_CHUNK_SIZE", "500"))
+CHUNK_OVERLAP = int(get_env_var("CHUNK_OVERLAP", "50"))
 
 # Hard cap to prevent very large PDFs from generating huge embedding workloads.
-MAX_CHILD_CHUNKS = int(os.getenv("MAX_CHILD_CHUNKS", "450"))
-# Cap extraction/indexing work for very large files.
-MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "40"))
-MAX_TEXT_CHARS = int(os.getenv("MAX_TEXT_CHARS", "120000"))
-# Reduce write amplification in vector metadata.
-MAX_PARENT_TEXT_IN_METADATA = int(os.getenv("MAX_PARENT_TEXT_IN_METADATA", "1800"))
+MAX_CHILD_CHUNKS = int(get_env_var("MAX_CHILD_CHUNKS", "450"))
+MAX_PDF_PAGES = int(get_env_var("MAX_PDF_PAGES", "40"))
+MAX_TEXT_CHARS = int(get_env_var("MAX_TEXT_CHARS", "120000"))
+MAX_PARENT_TEXT_IN_METADATA = int(get_env_var("MAX_PARENT_TEXT_IN_METADATA", "1800"))
 
 # --- Retrieval ---
 TOP_K = 8
-# 0 = skip multi-query rewrite (fastest). 4 = better recall, slower (extra LLM call).
-# Set to 2 for better semantic coverage across query variants.
 NUM_MULTI_QUERIES = 2
 MAX_CONTEXT_PARENTS = 15
-# L2 distance cutoff for chunk relevance (DefaultEmbeddingFunction produces
-# unit-norm vectors, so L2 range is 0–√2 ≈ 1.414).
-# 1.0  ≈ cosine similarity ≥ 0.50 (relevant)
-# 1.2  ≈ cosine similarity ≥ 0.28 (loosely related)
-# Keep at 1.2 so we never drop valid context from short/broad questions.
-DISTANCE_THRESHOLD = float(os.getenv("DISTANCE_THRESHOLD", "1.2"))
+DISTANCE_THRESHOLD = float(get_env_var("DISTANCE_THRESHOLD", "1.2"))
 
 # --- Conversation Memory ---
-N_MESSAGES = 5
+N_MESSAGES = 20
 HISTORY_STRATEGY = 2
 
 # --- Storage Paths ---
-# Override these in production to point at a persistent volume, e.g.:
-#   PDF_STORAGE_PATH=/data/pdfs
-#   CHROMA_PATH=/data/chroma_db
-#   DB_PATH=/data/app.db
-_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PDF_STORAGE_PATH = os.getenv("PDF_STORAGE_PATH", os.path.join(_BASE_DIR, "storage", "pdfs"))
-CHROMA_PATH = os.getenv("CHROMA_PATH", os.path.join(_BASE_DIR, "storage", "chroma_db"))
-DB_PATH = os.getenv("DB_PATH", os.path.join(_BASE_DIR, "storage", "app.db"))
+PDF_STORAGE_PATH = get_env_var("PDF_STORAGE_PATH", os.path.join(_BASE_DIR, "storage", "pdfs"))
+CHROMA_PATH = get_env_var("CHROMA_PATH", os.path.join(_BASE_DIR, "storage", "chroma_db"))
+DB_PATH = get_env_var("DB_PATH", os.path.join(_BASE_DIR, "storage", "app.db"))
 
 # --- Optional Chroma Server Mode ---
 # If CHROMA_HOST is set, backend will connect to a separate ChromaDB service
 # (e.g., docker-compose service named "db") instead of local PersistentClient.
-CHROMA_HOST = os.getenv("CHROMA_HOST", "").strip()
-CHROMA_PORT = int(os.getenv("CHROMA_PORT", "8000"))
-CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "documents")
+CHROMA_HOST = get_env_var("CHROMA_HOST", "").strip()
+CHROMA_PORT = int(get_env_var("CHROMA_PORT", "8000"))
+CHROMA_COLLECTION = get_env_var("CHROMA_COLLECTION", "documents")
 
 # --- CORS ---
 # Comma-separated list, e.g. "https://my-frontend.vercel.app,http://localhost:5173"
-CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
+CORS_ORIGINS = [o.strip() for o in get_env_var("CORS_ORIGINS", "*").split(",") if o.strip()]

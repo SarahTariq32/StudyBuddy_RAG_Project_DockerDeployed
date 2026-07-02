@@ -15,6 +15,8 @@ services:
       - ./backend/app:/app/app
       # Keep data persistent across restarts
       - rag-data:/data
+      # Cache embedding models to avoid re-downloading them on rebuilds/restarts
+      - chroma-cache:/root/.cache
     
     # Override CMD to use reload in development
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -46,11 +48,12 @@ services:
       - rag-network
     
     environment:
-      # In dev, both localhost and service name should work
-      VITE_API_URL: http://backend:8000
+      # Browser runs on host machine, so API must be host-reachable.
+      VITE_API_URL: http://localhost:8000
 
 volumes:
   rag-data:
+  chroma-cache:
 
 networks:
   rag-network:

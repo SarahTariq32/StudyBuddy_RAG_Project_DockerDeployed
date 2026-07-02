@@ -64,6 +64,8 @@ services:
     volumes:
       # Persistent storage for PDFs and SQLite
       - rag-data:/data
+      # Cache embedding models to avoid re-downloading them on rebuilds/restarts
+      - chroma-cache:/root/.cache
     
     networks:
       - rag-network
@@ -113,6 +115,8 @@ volumes:
   chroma-data:
     driver: local
   rag-data:
+    driver: local
+  chroma-cache:
     driver: local
 
 # Shared network for service communication
