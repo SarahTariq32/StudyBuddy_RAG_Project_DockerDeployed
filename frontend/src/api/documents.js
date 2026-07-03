@@ -138,6 +138,14 @@ export async function uploadPDF(file) {
       const data = await res.json()
       message = data?.detail || message
     } catch (_) {}
+
+    if (res.status === 409) {
+      return {
+        duplicate: true,
+        message,
+      }
+    }
+
     throw new Error(message)
   }
 

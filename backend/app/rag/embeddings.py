@@ -1,32 +1,48 @@
-from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 from app.config import EMBEDDING_BATCH_SIZE
+import importlib
 import time
 
-# Uses Chroma's ONNX-based default embedding model (CPU-friendly and lighter
-# than installing full PyTorch + sentence-transformers in container builds).
-_embedder = DefaultEmbeddingFunction()
+
+def _build_embedder():
+    """
+    Lazy-load Chroma embedder to avoid IDE false missing-import warnings.
+    """
+    try:
+        mod = importlib.import_module("chromadb.utils.embedding_functions")
+        return mod.DefaultEmbeddingFunction()
+    except Exception as exc:
+        raise RuntimeError(
+            "chromadb is not available in the active interpreter. "
+            "Select backend\\.venv interpreter in VS Code."
+        ) from exc
+
+
+_embedder = _build_embedder()
 
 
 def create_embeddings(texts: list[str]) -> list[list[float]]:
     """
-    Encode a list of strings into normalized embedding vectors.
-    Processes texts in batches of EMBEDDING_BATCH_SIZE to avoid memory
-    exhaustion on large indexing jobs.
-    Returns a list of float lists (one per input text), preserving order.
+    Encode a list of strings into embedding vectors.
+    Preserves input order and returns one vector per input text.
     """
-    cleaned = [text for text in texts if (text or "").strip()]
-    if not cleaned:
-        raise ValueError("No non-empty text provided for embeddings")
+    if not texts:
+        return []
 
+    # Keep length/order stable: replace empty/blank text with a single space.
+    normalized = [(t if (t or "").strip() else " ") for t in texts]
+
+    batch_size = EMBEDDING_BATCH_SIZE if EMBEDDING_BATCH_SIZE > 0 else 48
     all_embeddings: list[list[float]] = []
 
-    for batch_start in range(0, len(cleaned), EMBEDDING_BATCH_SIZE):
-        batch = cleaned[batch_start : batch_start + EMBEDDING_BATCH_SIZE]
+    for batch_start in range(0, len(normalized), batch_size):
+        batch = normalized[batch_start : batch_start + batch_size]
         last_exc = None
+
         for attempt in range(3):
             try:
-                batch_embeddings = _embedder(batch)
-                all_embeddings.extend(batch_embeddings)
+                raw_vectors = _embedder(batch)
+                vectors = [[float(x) for x in vec] for vec in raw_vectors]
+                all_embeddings.extend(vectors)
                 break
             except Exception as exc:
                 last_exc = exc

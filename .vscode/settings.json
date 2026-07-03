@@ -1,0 +1,6 @@
+{
+  "python.defaultInterpreterPath": "c:\\Users\\sarah\\OneDrive\\Desktop\\RAG project\\backend\\.venv\\Scripts\\python.exe",
+  "python.analysis.extraPaths": [
+    "c:\\Users\\sarah\\OneDrive\\Desktop\\RAG project\\backend"
+  ]
+}

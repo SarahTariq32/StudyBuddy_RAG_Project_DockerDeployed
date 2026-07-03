@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from threading import Thread
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File # type: ignore
 
 from app.config import (
     MAX_PDFS,
@@ -174,9 +174,12 @@ def upload_document(file: UploadFile = File(...)):
             "INSERT INTO documents (id, filename, uploaded_at, status, content_hash) VALUES (?, ?, ?, ?, ?)",
             (doc_id, file.filename, uploaded_at, "processing", content_hash),
         )
-    except sqlite3.IntegrityError:
+    except sqlite3.IntegrityError as exc:
         conn.close()
-        raise HTTPException(status_code=409, detail="This PDF is already added.")
+        msg = str(exc).lower()
+        if "content_hash" in msg or "unique" in msg:
+            raise HTTPException(status_code=409, detail="This PDF is already added.")
+        raise HTTPException(status_code=500, detail="Database error while saving document.")
 
     conn.commit()
     conn.close()

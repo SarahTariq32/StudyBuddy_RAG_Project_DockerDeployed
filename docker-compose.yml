@@ -56,6 +56,12 @@ services:
       MAX_PDF_PAGES: ${MAX_PDF_PAGES:-40}
       NUM_MULTI_QUERIES: ${NUM_MULTI_QUERIES:-2}
       DISTANCE_THRESHOLD: ${DISTANCE_THRESHOLD:-1.2}
+
+      # LangChain runtime (enabled by default in Docker)
+      USE_LANGCHAIN: ${USE_LANGCHAIN:-true}
+      RAG_LLM_PROVIDER: ${RAG_LLM_PROVIDER:-${LLM_PROVIDER:-groq}}
+      RAG_EMBEDDINGS_PROVIDER: ${RAG_EMBEDDINGS_PROVIDER:-legacy}
+      RAG_TOP_K: ${RAG_TOP_K:-8}
     
     volumes:
       # Persistent storage for PDFs and SQLite

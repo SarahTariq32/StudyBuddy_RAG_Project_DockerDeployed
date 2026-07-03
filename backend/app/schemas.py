@@ -1,20 +1,21 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field  # type: ignore
+from typing import Optional
 
 
 class DocumentOut(BaseModel):
     id: str
     filename: str
-    uploaded_at: str
-    
-    status: str = "ready"
+    status: str
+    uploaded_at: Optional[str] = None
+
 
 class DocumentRenameRequest(BaseModel):
-    filename: str | None = None
-    name: str | None = None
+    filename: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+
 
 class AskRequest(BaseModel):
-    session_id: str
-    question: str
+    question: str = Field(min_length=1)
 
 
 class AskResponse(BaseModel):

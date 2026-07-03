@@ -9,10 +9,17 @@ aiofiles==25.1.0
 
 # RAG core
 chromadb==0.5.11
-numpy==2.4.6
+numpy==1.26.4
 pypdf==6.14.2
 
-# LLM providers (both installed — .env decides which one is used at runtime)
+# LangChain (incremental integration)
+langchain-core==0.3.17
+langchain-chroma==0.1.4
+langchain-openai==0.2.8
+langchain-google-genai==2.0.4
+langchain-groq==0.2.1
+
+# LLM providers
 google-genai==2.9.0
-groq==1.5.0
+groq>=0.4.1,<1.0.0
 openai==1.95.1

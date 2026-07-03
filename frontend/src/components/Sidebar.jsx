@@ -121,6 +121,14 @@ function Sidebar({ isMobile = false, isOpen = true, onClose = () => {} }) {
     async function handleUpload(file) {
     try {
       const newDoc = await uploadPDF(file)
+
+      if (newDoc?.duplicate) {
+        await refreshDocs()
+        setNotification(newDoc.message || `${file.name} is already uploaded.`)
+        setNotificationType('success')
+        return
+      }
+
       if (newDoc && newDoc.id) {
         setDocs(prev => [...prev, newDoc])
         startPolling()
