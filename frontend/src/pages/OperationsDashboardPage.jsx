@@ -5,10 +5,7 @@ import { fetchOpsDashboard, fetchOpsTraceById, fetchOpsTraces, getCachedOpsDashb
 
 const REQUEST_TIMEOUT_MS = 5000
 const POLL_MS = 15000
-const WINDOW_OPTIONS = [
-  { label: '24h', value: 24 },
-  { label: '7d', value: 24 * 7 },
-]
+
 
 function withTimeout(promise, timeoutMs = REQUEST_TIMEOUT_MS) {
   return Promise.race([
@@ -323,6 +320,24 @@ function TraceDetails({ trace, loading }) {
             const skipped = execution === 'Skipped'
             const reason = stage?.failure_reason || stage?.error
             const outcome = stage?.outcome || stage?.outputs?.outcome || stage?.outputs?.retrieval_outcome
+            let outcomeText = failed ? (reason || 'stage error') : (outcome || '')
+            
+            if (name === 'retrieval') {
+              if (skipped) {
+                outcomeText = "No Documents Available"
+              } else if (failed) {
+                const errStr = String(reason || '').toLowerCase()
+                if (errStr.includes('embed')) outcomeText = "Embedding Error"
+                else if (errStr.includes('timeout')) outcomeText = "Retrieval Error"
+                else outcomeText = "Retrieval Error"
+              } else {
+                const chunks = Number(trace?.retrieved_chunk_count || 0)
+                outcomeText = chunks > 0 ? "Relevant Context Found" : "No Relevant Context"
+              }
+            } else if (name === 'query_rewrite' && failed) {
+              outcomeText = "Query Rewrite Error"
+            }
+
             return (
               <div key={name} style={{ border: '1px solid rgba(0,130,255,0.2)', borderRadius: '8px', padding: '0.5rem 0.6rem', background: 'rgba(0,13,35,0.55)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.7rem', alignItems: 'center' }}>
@@ -336,7 +351,7 @@ function TraceDetails({ trace, loading }) {
                     {execution}
                   </div>
                   <div style={{ color: failed ? '#ffc8d4' : 'rgba(171,213,246,0.78)', fontSize: '0.7rem', textAlign: 'right', maxWidth: '70%' }}>
-                    {failed ? (reason || 'stage error') : (outcome || '')}
+                    {outcomeText}
                   </div>
                 </div>
               </div>
@@ -348,6 +363,8 @@ function TraceDetails({ trace, loading }) {
   )
 }
 
+
+
 function OperationsDashboardPage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
@@ -358,6 +375,24 @@ function OperationsDashboardPage() {
   const [lastUpdated, setLastUpdated] = useState(null)
   const [windowHours, setWindowHours] = useState(24);
   const [traceLoading, setTraceLoading] = useState(false);
+  // Dynamically determine available window options based on trace timestamps
+  const hasWeekData = traceData.some(t => {
+    const ts = t.timestamp ? new Date(t.timestamp).getTime() : 0;
+    const ageHours = (Date.now() - ts) / (1000 * 60 * 60);
+    return ageHours >= 24 * 7;
+  });
+  const windowOptions = [{ label: '24h', value: 24 }];
+  if (hasWeekData) {
+    windowOptions.push({ label: '7d', value: 24 * 7 });
+  }
+
+  // Ensure selected window remains valid
+  useEffect(() => {
+    const availableValues = windowOptions.map(o => o.value);
+    if (!availableValues.includes(windowHours)) {
+      setWindowHours(24);
+    }
+  }, [windowOptions, windowHours]);
 
   const load = useCallback(async (hoursArg = windowHours) => {
     try {
@@ -486,7 +521,7 @@ function OperationsDashboardPage() {
                 fontWeight: 600,
               }}
             >
-              {WINDOW_OPTIONS.map(opt => (
+              {windowOptions.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label} window</option>
               ))}
             </select>
@@ -559,10 +594,12 @@ function OperationsDashboardPage() {
           <SuccessFailureCard rows={charts.success_failure || []} />
         </div>
 
-        <div className="ops-trace-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(270px, 360px) 1fr', gap: '0.65rem', height: '100%' }}>
+        <div className="ops-trace-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(270px, 360px) 1fr', gap: '0.65rem', height: '600px' }}>
           <TraceList traces={traceData} selectedId={selectedTrace?.id} onSelect={handleTraceSelect} />
           <TraceDetails trace={selectedTrace} loading={traceLoading} />
         </div>
+
+
       </div>
 
       <style>{`

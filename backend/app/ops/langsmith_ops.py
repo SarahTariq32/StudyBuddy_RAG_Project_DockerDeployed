@@ -235,7 +235,11 @@ class LangSmithOps:
         if not self.enabled or self.client is None:
             return []
 
-        start_time = _utcnow() - timedelta(hours=max(1, int(hours)))
+        days = hours // 24
+        if days >= 1:
+            start_time = (_utcnow() - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            start_time = _utcnow() - timedelta(hours=max(1, int(hours)))
         try:
             return list(
                 self.client.list_runs(
@@ -429,7 +433,7 @@ class LangSmithOps:
         }
 
     def get_dashboard_data(self, *, hours: int = 24, limit: int = 100) -> dict:
-        fast_limit = min(max(1, int(limit)), 50)
+        fast_limit = 1000
         remote_traces = self._get_remote_traces(hours=hours, limit=fast_limit)
         if not remote_traces and not self._local_traces:
             cached = dict(self._cached_dashboard)
@@ -440,7 +444,38 @@ class LangSmithOps:
 
         # Combine local recent traces with remote traces for up‑to‑date dashboard
         all_traces = self._local_traces + (remote_traces or [])
-        traces = self._merged_recent_traces(all_traces, max(20, fast_limit))
+        
+        days = hours // 24
+        if days >= 1:
+            start_time = (_utcnow() - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            start_time = _utcnow() - timedelta(hours=max(1, int(hours)))
+
+        def _is_in_window(t):
+            ts = t.get("timestamp")
+            if not ts: return False
+            try:
+                if isinstance(ts, str):
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                else:
+                    dt = ts
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt >= start_time
+            except Exception:
+                return False
+
+        window_traces = [t for t in all_traces if _is_in_window(t)]
+        
+        seen = set()
+        traces = []
+        for t in window_traces:
+            tid = str(t.get("id") or "")
+            if tid and tid in seen: continue
+            if tid: seen.add(tid)
+            traces.append(t)
+            
+        traces.sort(key=lambda t: t.get("timestamp") or "", reverse=True)
 
         total = len(traces)
         successes = sum(1 for t in traces if t.get("status") == "success")
@@ -490,7 +525,7 @@ class LangSmithOps:
                 token_total += int(tot_tok)
                 token_points.append({"timestamp": stamp, "value": int(tot_tok)})
 
-        recent = traces[:20]
+        recent = traces[:limit]
 
         result = {
             "enabled": self.public_enabled,
@@ -528,7 +563,7 @@ class LangSmithOps:
         return result
 
     def get_traces(self, *, hours: int = 24, limit: int = 30) -> dict:
-        fast_limit = min(max(1, int(limit)), 50)
+        fast_limit = max(1000, int(limit))
         remote_traces = self._get_remote_traces(hours=hours, limit=fast_limit)
         if not remote_traces and self.enabled and not self._local_traces:
             cached = dict(self._cached_traces)
@@ -536,12 +571,45 @@ class LangSmithOps:
             cached["project"] = self.project
             return cached
 
-        traces = self._merged_recent_traces(remote_traces, fast_limit)
+        all_traces = self._local_traces + (remote_traces or [])
+        days = hours // 24
+        if days >= 1:
+            start_time = (_utcnow() - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            start_time = _utcnow() - timedelta(hours=max(1, int(hours)))
+
+        def _is_in_window(t):
+            ts = t.get("timestamp")
+            if not ts: return False
+            try:
+                if isinstance(ts, str):
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                else:
+                    dt = ts
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt >= start_time
+            except Exception:
+                return False
+
+        window_traces = [t for t in all_traces if _is_in_window(t)]
+        
+        seen = set()
+        traces = []
+        for t in window_traces:
+            tid = str(t.get("id") or "")
+            if tid and tid in seen: continue
+            if tid: seen.add(tid)
+            traces.append(t)
+            
+        traces.sort(key=lambda t: t.get("timestamp") or "", reverse=True)
+        result_traces = traces[:limit]
+
         result = {
             "enabled": self.public_enabled,
             "project": self.project,
             "count": len(traces),
-            "traces": traces,
+            "traces": result_traces,
         }
         self._cached_traces = result
         return result
