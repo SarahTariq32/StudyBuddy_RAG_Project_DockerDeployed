@@ -12,6 +12,9 @@ class GeminiProvider(LLMProvider):
         self.client = genai.Client(api_key=GEMINI_API_KEY)
 
     def generate(self, prompt: str) -> str:
+        return self.generate_with_meta(prompt).get("text", "")
+
+    def generate_with_meta(self, prompt: str) -> dict:
         try:
             response = self.client.models.generate_content(
                 model=GEMINI_MODEL,
@@ -26,4 +29,13 @@ class GeminiProvider(LLMProvider):
         text = response.text
         if not text:
             raise RuntimeError("Gemini returned an empty response.")
-        return text
+        usage = getattr(response, "usage_metadata", None)
+        return {
+            "text": text,
+            "token_usage": {
+                "input_tokens": getattr(usage, "prompt_token_count", None),
+                "output_tokens": getattr(usage, "candidates_token_count", None),
+                "total_tokens": getattr(usage, "total_token_count", None),
+            },
+            "model": GEMINI_MODEL,
+        }

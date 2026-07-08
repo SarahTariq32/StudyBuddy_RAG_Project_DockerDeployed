@@ -1,6 +1,7 @@
 const BASE_URL = import.meta.env.VITE_API_URL || '/api'
+const ASK_TIMEOUT_MS = 90000
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = ASK_TIMEOUT_MS) {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -50,6 +51,11 @@ export async function askQuestion(question, sessionId) {
         throw err
       }
     }
+  }
+
+  const timedOut = lastError?.name === 'AbortError' || String(lastError?.message || '').toLowerCase().includes('aborted')
+  if (timedOut) {
+    throw new Error('Request timed out while waiting for /ask response. Please try again.')
   }
 
   throw new Error(`Failed to reach backend for /ask: ${lastError?.message || 'unknown error'}`)

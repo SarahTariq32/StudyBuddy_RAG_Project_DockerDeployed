@@ -1,4 +1,6 @@
 import chromadb
+import os
+import shutil
 from app.config import (
     CHROMA_PATH,
     CHROMA_HOST,
@@ -13,13 +15,58 @@ from app.config import (
 if CHROMA_HOST:
     # Docker/service mode: use external Chroma service (e.g. compose service "db").
     _client = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
-    print(f"✓ ChromaDB client connected via HTTP at {CHROMA_HOST}:{CHROMA_PORT}")
+    print(f"[INFO] ChromaDB client connected via HTTP at {CHROMA_HOST}:{CHROMA_PORT}")
 else:
     # Standalone mode: use local persistent path.
     _client = chromadb.PersistentClient(path=CHROMA_PATH)
-    print(f"✓ ChromaDB client using local path: {CHROMA_PATH}")
+    print(f"[INFO] ChromaDB client using local path: {CHROMA_PATH}")
 
-_collection = _client.get_or_create_collection(name=CHROMA_COLLECTION)
+def _create_collection_with_recovery():
+    """
+    Recover from known local Chroma config shape mismatches (for example
+    KeyError: '_type' while reading old collection metadata) by resetting
+    the local persisted directory. This only applies to standalone mode.
+    """
+    global _client
+    try:
+        return _client.get_or_create_collection(name=CHROMA_COLLECTION)
+    except Exception as exc:
+        is_local_mode = not CHROMA_HOST
+        msg = str(exc)
+        if not is_local_mode:
+            raise
+        if "_type" not in msg:
+            raise
+
+        print("[INFO] Chroma local metadata is incompatible. Resetting local Chroma store...")
+        try:
+            if os.path.exists(CHROMA_PATH):
+                shutil.rmtree(CHROMA_PATH, ignore_errors=True)
+            os.makedirs(CHROMA_PATH, exist_ok=True)
+
+            # Chroma caches client systems per path/process. Clear cache so a
+            # fresh PersistentClient is actually created after reset.
+            try:
+                from chromadb.api.client import SharedSystemClient  # type: ignore
+
+                SharedSystemClient.clear_system_cache()
+            except Exception:
+                pass
+
+            _client = chromadb.PersistentClient(path=CHROMA_PATH)
+            print(f"[INFO] ChromaDB store reset at: {CHROMA_PATH}")
+            return _client.get_or_create_collection(name=CHROMA_COLLECTION)
+        except Exception as retry_exc:
+            print(f"[ERROR] Chroma recovery failed: {retry_exc}")
+            print("[WARN] Falling back to in-memory Chroma client for this session.")
+            try:
+                _client = chromadb.EphemeralClient()
+                return _client.get_or_create_collection(name=CHROMA_COLLECTION)
+            except Exception:
+                raise
+
+
+_collection = _create_collection_with_recovery()
 
 
 def add_chunks(

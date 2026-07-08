@@ -11,6 +11,9 @@ class GroqProvider(LLMProvider):
         self.client = Groq(api_key=GROQ_API_KEY)
 
     def generate(self, prompt: str) -> str:
+        return self.generate_with_meta(prompt).get("text", "")
+
+    def generate_with_meta(self, prompt: str) -> dict:
         try:
             response = self.client.chat.completions.create(
                 model=GROQ_MODEL,
@@ -25,4 +28,13 @@ class GroqProvider(LLMProvider):
         content = response.choices[0].message.content
         if not content:
             raise RuntimeError("Groq returned an empty response.")
-        return content
+        usage = getattr(response, "usage", None)
+        return {
+            "text": content,
+            "token_usage": {
+                "input_tokens": getattr(usage, "prompt_tokens", None),
+                "output_tokens": getattr(usage, "completion_tokens", None),
+                "total_tokens": getattr(usage, "total_tokens", None),
+            },
+            "model": GROQ_MODEL,
+        }

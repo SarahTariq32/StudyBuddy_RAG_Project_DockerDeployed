@@ -73,5 +73,15 @@ Question: {question}"""
 
 
 def generate_answer(question: str, context_items: list[dict], history: list[dict]) -> str:
+    return generate_answer_with_meta(question, context_items, history).get("answer", "")
+
+
+def generate_answer_with_meta(question: str, context_items: list[dict], history: list[dict]) -> dict:
     prompt = build_prompt(question, context_items, history)
-    return get_llm_client().generate(prompt)
+    result = get_llm_client().generate_with_meta(prompt)
+    return {
+        "answer": result.get("text", ""),
+        "prompt": prompt,
+        "token_usage": result.get("token_usage", {}),
+        "model": result.get("model"),
+    }

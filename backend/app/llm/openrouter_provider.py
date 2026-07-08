@@ -20,6 +20,9 @@ class OpenRouterProvider(LLMProvider):
         )
 
     def generate(self, prompt: str) -> str:
+        return self.generate_with_meta(prompt).get("text", "")
+
+    def generate_with_meta(self, prompt: str) -> dict:
         try:
             response = self.client.chat.completions.create(
                 model=OPENROUTER_MODEL,
@@ -41,4 +44,13 @@ class OpenRouterProvider(LLMProvider):
         content = response.choices[0].message.content if response.choices else ""
         if not content:
             raise RuntimeError("LLM returned empty response.")
-        return content.strip()
+        usage = getattr(response, "usage", None)
+        return {
+            "text": content.strip(),
+            "token_usage": {
+                "input_tokens": getattr(usage, "prompt_tokens", None),
+                "output_tokens": getattr(usage, "completion_tokens", None),
+                "total_tokens": getattr(usage, "total_tokens", None),
+            },
+            "model": OPENROUTER_MODEL,
+        }

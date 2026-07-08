@@ -63,6 +63,11 @@ A modern full-stack application that lets you upload PDF documents and ask natur
 - Easy runtime provider switching via environment variable
 - Graceful error handling with meaningful messages
 
+✅ **LangChain Integration (Runtime Toggle)**
+- LangChain-enabled `/ask` path via `USE_LANGCHAIN=true`
+- Uses LangChain retriever + chat model against the same Chroma collection
+- Automatic fallback to legacy RAG path if disabled or unavailable
+
 ---
 
 ## Architecture
@@ -92,6 +97,7 @@ A modern full-stack application that lets you upload PDF documents and ask natur
 │  ├─ Chunking (parent + child splits)                       │
 │  ├─ Embeddings (ONNX-based, BAAI/bge-small)               │
 │  ├─ Vector DB (ChromaDB persistent storage)                │
+│  ├─ LangChain Path (Retriever + Chat Model)                │
 │  ├─ Query Rewriter (LLM-powered multi-query)               │
 │  ├─ Retriever (semantic search + filtering)                │
 │  └─ Answer Generator (LLM with context)                    │
@@ -114,6 +120,7 @@ A modern full-stack application that lets you upload PDF documents and ask natur
 | **Server** | Uvicorn 0.49.0 |
 | **PDF Processing** | pypdf 6.14.2 |
 | **Vector DB** | ChromaDB 1.5.9 |
+| **RAG Framework** | LangChain (langchain-core, langchain-chroma, provider integrations) |
 | **Embeddings** | ONNX (chromadb.utils.embedding_functions) |
 | **LLM Providers** | Google Gemini, Groq, OpenRouter |
 | **Database** | SQLite (documents + chat history) |
@@ -172,7 +179,7 @@ Expected output:
 INFO:     Uvicorn running on http://127.0.0.1:8000
 INFO:     Application startup complete
 ✓ Database initialized
-✓ LLM provider initialized
+✓ LangChain enabled
 ```
 
 ### 4. Frontend Setup (new terminal)
@@ -226,11 +233,13 @@ Docker will:
 - Build frontend container from `frontend/Dockerfile`
 - Create a shared network for inter-service communication
 - Create a persistent volume for PDFs, ChromaDB, and SQLite
+- Enable LangChain runtime in backend by default (`USE_LANGCHAIN=true`)
 - Start both services
 
 ### 3. Access the App
 
-- **Frontend:** http://localhost:5173 (served through NGINX with `/api` reverse-proxied to the backend)
+- **Frontend (recommended):** http://127.0.0.1:5173 (served through NGINX with `/api` reverse-proxied to the backend)
+- **Frontend (localhost):** http://localhost:5173 (on some Windows/WSL setups, localhost IPv6 may fail; use 127.0.0.1)
 - **Backend API:** http://localhost:8000
 - **Health Check:** `curl http://localhost:8000/health`
 
@@ -302,6 +311,31 @@ DISTANCE_THRESHOLD=1.2
 NUM_MULTI_QUERIES=2
 ```
 
+**LangChain Runtime:**
+```env
+USE_LANGCHAIN=true
+RAG_LLM_PROVIDER=groq               # groq | gemini | openai
+RAG_EMBEDDINGS_PROVIDER=legacy      # legacy | gemini | openai
+RAG_TOP_K=8
+CHROMA_COLLECTION=documents
+CHROMA_PERSIST_DIR=./storage/chroma_db
+```
+
+**LangSmith Observability (AI Operations Dashboard):**
+```env
+LANGSMITH_API_KEY=lsv2_...
+LANGSMITH_PROJECT=studybuddy-rag
+```
+
+Notes:
+- Dashboard endpoints are backend-only and keep API keys server-side.
+- If `LANGSMITH_API_KEY` is not set, dashboard renders with empty metrics.
+- For Docker Compose, add these variables to the root `.env` used by compose.
+
+Notes:
+- In Docker, backend connects to external Chroma service (`CHROMA_HOST=db`).
+- LangChain is wired to use the same Chroma collection as the legacy path.
+
 See `backend/.env.example` for all options.
 
 ### Frontend (Vercel)
@@ -310,7 +344,7 @@ See `backend/.env.example` for all options.
 VITE_API_URL=https://your-backend-domain
 ```
 
-(If omitted, falls back to `http://localhost:8000` for local dev)
+(In Docker/local NGINX setup, frontend uses same-origin `/api`.)
 
 ---
 
@@ -343,6 +377,7 @@ RAG project/
 │       │   ├── loader.py              # PDF text extraction
 │       │   ├── chunking.py            # Parent + child chunking
 │       │   ├── embeddings.py          # Embedding generation (ONNX)
+│       │   ├── provider.py            # LangChain runtime adapter
 │       │   ├── vector_store.py        # ChromaDB wrapper
 │       │   ├── pipeline.py            # Multi-query retrieval orchestration
 │       │   ├── query_rewrite.py       # LLM-powered query rewriting
@@ -429,6 +464,16 @@ Rewrite question using history context
     → "What is the capital of France?" (if no history)
     → Or clarified if it's a follow-up
     ↓
+If USE_LANGCHAIN=true:
+  ↓
+LangChain retriever query against Chroma
+  ↓
+LangChain chat model answer from retrieved context
+  ↓
+Return answer and save to history
+  ↓
+Else (legacy path):
+  ↓
 Generate multi-query rewrites (2 variants)
     → ["What is France's capital?", "Name the French capital"]
     ↓
@@ -561,6 +606,25 @@ Response (200):
   { "status": "ok" }
 ```
 
+### Operations Dashboard API (Backend Proxy)
+
+**Dashboard Summary**
+```
+GET /ops/dashboard?hours=24&limit=100
+```
+
+**Recent Traces**
+```
+GET /ops/traces?hours=24&limit=30
+```
+
+**Trace Detail**
+```
+GET /ops/traces/{trace_id}
+```
+
+Frontend page: `/ops`
+
 ---
 
 ## Configuration & Tuning
@@ -621,6 +685,20 @@ GROQ_MODEL=llama-3.3-70b-versatile
 | **Groq** | Llama 3.3 70B | ⚡ Fastest | Free | Good |
 | **Gemini** | 2.0 Flash | ⚡ Fast | $0.075/M in | Excellent |
 | **OpenRouter** | Many (Free tiers) | Variable | $0+ | Variable |
+
+### LangChain Enablement
+
+```env
+USE_LANGCHAIN=true
+RAG_LLM_PROVIDER=groq
+RAG_EMBEDDINGS_PROVIDER=legacy
+RAG_TOP_K=8
+```
+
+Behavior:
+- `USE_LANGCHAIN=true`: `/ask` uses LangChain retrieval + generation.
+- `USE_LANGCHAIN=false`: `/ask` uses the legacy retrieval/generation pipeline.
+- If LangChain throws at runtime, request handling falls back to legacy logic.
 
 ---
 
@@ -684,6 +762,16 @@ MAX_PDF_PAGES=30           # Limit pages extracted
 LLM_PROVIDER=groq          # Switch to free fast provider
 # Or add exponential backoff (already in code, but monitor)
 ```
+
+### LangChain appears disabled in logs
+**Cause:** `USE_LANGCHAIN` is false/missing in active environment, or backend not restarted.  
+**Fix:**
+```env
+USE_LANGCHAIN=true
+RAG_LLM_PROVIDER=groq
+RAG_EMBEDDINGS_PROVIDER=legacy
+```
+Then restart backend/container and confirm startup log shows `LangChain enabled`.
 
 ---
 

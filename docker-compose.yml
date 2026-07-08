@@ -31,6 +31,10 @@ services:
       GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-meta-llama/llama-3.3-8b-instruct:free}
+
+      # LangSmith Observability
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-studybuddy-rag}
       
       # Storage Paths (persistent volumes)
       PDF_STORAGE_PATH: /data/pdfs
@@ -112,7 +116,8 @@ services:
   nginx:
     image: nginx:1.27-alpine
     ports:
-      - "80:80"
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:5173:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     networks:

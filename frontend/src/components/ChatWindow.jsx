@@ -58,13 +58,39 @@
 // export default ChatWindow
 
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { askQuestion } from '../api/chat.js'
 import { getSessionId } from '../utils/session.js'
 import Message from './Message.jsx'
 import InputBox from './InputBox.jsx'
 
+function getChatCacheKey(sessionId) {
+  return `chat_messages_${sessionId}`
+}
+
+function readChatCache(sessionId) {
+  try {
+    const raw = sessionStorage.getItem(getChatCacheKey(sessionId))
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch (_) {
+    return []
+  }
+}
+
+function writeChatCache(sessionId, messages) {
+  try {
+    sessionStorage.setItem(getChatCacheKey(sessionId), JSON.stringify(messages))
+  } catch (_) {
+    // Ignore storage errors.
+  }
+}
+
 function ChatWindow({ topInset = 0 }) {
-  const [messages, setMessages] = useState([])
+  const navigate = useNavigate()
+  const sessionId = getSessionId()
+  const [messages, setMessages] = useState(() => readChatCache(sessionId))
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef(null)
 
@@ -72,12 +98,16 @@ function ChatWindow({ topInset = 0 }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  useEffect(() => {
+    writeChatCache(sessionId, messages)
+  }, [messages, sessionId])
+
   async function handleSend(question) {
     setMessages(prev => [...prev, { role: 'user', text: question }])
     setLoading(true)
 
     try {
-      const data = await askQuestion(question, getSessionId())
+      const data = await askQuestion(question, sessionId)
       const answer = data.answer ?? 'Something went wrong.'
       setMessages(prev => [...prev, { role: 'assistant', text: answer }])
     } catch (err) {
@@ -108,6 +138,32 @@ function ChatWindow({ topInset = 0 }) {
         backdropFilter: 'blur(2px)',
         zIndex: -1,
       }} />
+
+      <button
+        className="chat-ops-btn"
+        onClick={() => navigate('/ops')}
+        style={{
+          position: 'absolute',
+          top: topInset ? '0.7rem' : '1rem',
+          right: '1rem',
+          zIndex: 3,
+          border: '1px solid rgba(0,180,255,0.34)',
+          background: 'linear-gradient(135deg, rgba(0,70,155,0.66), rgba(0,150,255,0.36))',
+          color: '#dff6ff',
+          borderRadius: '10px',
+          padding: '0.42rem 0.72rem',
+          fontSize: '0.73rem',
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          fontWeight: 600,
+          cursor: 'pointer',
+          transition: 'all 0.22s ease',
+          boxShadow: '0 0 16px rgba(0,130,255,0.2)',
+          backdropFilter: 'blur(5px)',
+        }}
+      >
+        Operations Dashboard
+      </button>
 
       {/* Messages container */}
       <div style={{
@@ -148,6 +204,17 @@ function ChatWindow({ topInset = 0 }) {
         @keyframes pulse {
           0%, 100% { opacity: 0.6; }
           50% { opacity: 1; }
+        }
+
+        .chat-ops-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 0 22px rgba(0,180,255,0.34);
+          border-color: rgba(0,210,255,0.58);
+          background: linear-gradient(135deg, rgba(0,95,185,0.74), rgba(0,170,255,0.42));
+        }
+
+        .chat-ops-btn:active {
+          transform: translateY(0);
         }
       `}</style>
     </div>

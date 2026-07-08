@@ -16,6 +16,7 @@ class DocumentRenameRequest(BaseModel):
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1)
+    session_id: Optional[str] = None
 
 
 class AskResponse(BaseModel):

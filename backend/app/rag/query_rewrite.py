@@ -30,4 +30,25 @@ def generate_multi_queries(question: str, n: int) -> list[str]:
         rewrites.append(line)
         if len(rewrites) >= n:
             break
-    return rewrites
+    if rewrites:
+        return rewrites
+
+    # Deterministic fallback so multi-query retrieval still runs when rewrite LLM
+    # is unavailable or returns unusable output.
+    base = (question or "").strip()
+    fallback_candidates = [
+        f"Explain in detail: {base}",
+        f"Key facts and definitions for: {base}",
+        f"Find relevant sections about: {base}",
+    ]
+    fallback: list[str] = []
+    seen_fb: set[str] = set()
+    for cand in fallback_candidates:
+        norm = cand.lower().strip()
+        if not norm or norm in seen_fb:
+            continue
+        seen_fb.add(norm)
+        fallback.append(cand)
+        if len(fallback) >= n:
+            break
+    return fallback

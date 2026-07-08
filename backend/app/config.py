@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv, dotenv_values # type: ignore
 
 # Get base directory of the backend application
@@ -42,6 +43,15 @@ GROQ_MODEL = get_env_var("GROQ_MODEL", "llama-3.3-70b-versatile")
 OPENROUTER_API_KEY = get_env_var("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = get_env_var("OPENROUTER_MODEL", "meta-llama/llama-3.3-8b-instruct:free")
 
+# --- LangSmith / LLMOps ---
+LANGSMITH_API_KEY = get_env_var("LANGSMITH_API_KEY", "")
+LANGSMITH_PROJECT = get_env_var("LANGSMITH_PROJECT", "studybuddy-rag")
+
+# Warn if LangSmith API key is missing; dashboard will show disabled state.
+if not LANGSMITH_API_KEY:
+    import logging
+    logging.warning("LANGSMITH_API_KEY is not set; LangSmith observability will be disabled.")
+
 # --- Embedding Model ---
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 EMBEDDING_BATCH_SIZE = int(get_env_var("EMBEDDING_BATCH_SIZE", "48"))
@@ -60,9 +70,10 @@ MAX_PARENT_TEXT_IN_METADATA = int(get_env_var("MAX_PARENT_TEXT_IN_METADATA", "18
 
 # --- Retrieval ---
 TOP_K = 8
-NUM_MULTI_QUERIES = 2
+NUM_MULTI_QUERIES = int(get_env_var("NUM_MULTI_QUERIES", "3"))
 MAX_CONTEXT_PARENTS = 15
-DISTANCE_THRESHOLD = float(get_env_var("DISTANCE_THRESHOLD", "1.2"))
+DISTANCE_THRESHOLD = float(get_env_var("DISTANCE_THRESHOLD", "0.8"))
+MIN_RELEVANCE_SCORE = float(get_env_var("MIN_RELEVANCE_SCORE", "0.30"))
 
 # --- Conversation Memory ---
 N_MESSAGES = 20
