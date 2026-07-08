@@ -335,7 +335,7 @@ class LangSmithOps:
         stage_status_metrics = metrics.get("stage_status", {}) if isinstance(metrics, dict) else {}
 
         if not stage_map and isinstance(stage_status_metrics, dict) and stage_status_metrics:
-            for stage_name in ("query_rewrite", "retrieval", "prompt_creation", "llm_generation", "final_answer"):
+            for stage_name in ("query_rewrite", "embedding", "retrieval", "llm_generation", "final_answer"):
                 status_val = stage_status_metrics.get(stage_name)
                 if not status_val:
                     continue
@@ -344,9 +344,28 @@ class LangSmithOps:
                     latency_val = metrics.get("retrieval_ms")
                 elif stage_name == "llm_generation":
                     latency_val = metrics.get("llm_ms")
+                if isinstance(status_val, dict):
+                    exec_status = status_val.get("execution_status") or "Completed"
+                    mapped_status = str(status_val.get("status") or "").lower() or (
+                        "failed" if str(exec_status).lower() == "failed" else "success" if str(exec_status).lower() == "completed" else "skipped"
+                    )
+                    stage_map[stage_name] = {
+                        "status": mapped_status,
+                        "execution_status": exec_status,
+                        "latency_ms": status_val.get("latency_ms") if status_val.get("latency_ms") is not None else latency_val,
+                        "outcome": status_val.get("outcome"),
+                        "failure_reason": status_val.get("failure_reason"),
+                        "inputs": {},
+                        "outputs": {},
+                        "error": status_val.get("failure_reason"),
+                    }
+                    continue
                 stage_map[stage_name] = {
                     "status": status_val,
+                    "execution_status": "Completed" if str(status_val).lower() == "success" else "Failed" if str(status_val).lower() == "failed" else "Skipped",
                     "latency_ms": latency_val,
+                    "outcome": None,
+                    "failure_reason": None,
                     "inputs": {},
                     "outputs": {},
                     "error": None,
@@ -363,10 +382,16 @@ class LangSmithOps:
             or outputs.get("query_rewrite")
             or question_value
         )
-        final_stage_outputs = (stage_map.get("final_answer", {}).get("outputs", {}) or {}) if isinstance(stage_map, dict) else {}
-        answer_outcome = final_stage_outputs.get("outcome") or outputs.get("answer_outcome")
+        final_stage = (stage_map.get("final_answer", {}) or {}) if isinstance(stage_map, dict) else {}
+        final_stage_outputs = final_stage.get("outputs", {}) or {}
+        answer_outcome = final_stage_outputs.get("outcome") or final_stage.get("outcome") or outputs.get("answer_outcome")
+        retrieval_outcome = ((stage_map.get("retrieval", {}) or {}).get("outputs", {}) or {}).get("retrieval_outcome") or (stage_map.get("retrieval", {}) or {}).get("outcome")
+        request_failure_reason = outputs.get("request_failure_reason") or final_stage.get("failure_reason") or error
+        fallback_mode = outputs.get("fallback_mode")
+        fallback_reason = outputs.get("fallback_reason")
+        response_source = outputs.get("response_source")
         final_stage_failed = (stage_map.get("final_answer", {}).get("status") == "failed") if isinstance(stage_map, dict) else False
-        resolved_status = "failed" if error or final_stage_failed else "success"
+        resolved_status = outputs.get("overall_status") or ("failed" if error or final_stage_failed else "success")
         retrieved_chunk_count = len(retrieved_docs)
         if retrieved_chunk_count == 0:
             retrieved_chunk_count = (
@@ -383,6 +408,11 @@ class LangSmithOps:
             "session_id": inputs.get("session_id"),
             "query_rewrite": rewrite_value,
             "answer_outcome": answer_outcome,
+            "retrieval_outcome": retrieval_outcome,
+            "response_source": response_source,
+            "fallback_mode": fallback_mode,
+            "fallback_reason": fallback_reason,
+            "request_failure_reason": request_failure_reason,
             "multi_queries": (stage_map.get("multi_query_generation", {}).get("outputs", {}) or {}).get("queries", []),
             "retrieved_documents": retrieved_docs,
             "retrieved_chunk_count": int(retrieved_chunk_count),
@@ -395,7 +425,7 @@ class LangSmithOps:
                 "llm_ms": metrics.get("llm_ms") or (stage_map.get("llm_generation", {}).get("latency_ms")),
                 "overall_ms": metrics.get("overall_ms") or _to_ms(start, end),
             },
-            "error": error,
+            "error": request_failure_reason,
         }
 
     def get_dashboard_data(self, *, hours: int = 24, limit: int = 100) -> dict:

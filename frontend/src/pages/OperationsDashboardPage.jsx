@@ -178,6 +178,16 @@ function stageLatencyMs(trace, stageName) {
   return null
 }
 
+function stageExecutionStatus(stage) {
+  const explicit = String(stage?.execution_status || '').trim()
+  if (explicit) return explicit
+  const status = String(stage?.status || '').toLowerCase()
+  if (status === 'failed') return 'Failed'
+  if (status === 'success') return 'Completed'
+  if (status === 'skipped') return 'Skipped'
+  return 'Skipped'
+}
+
 
 function TraceList({ traces, selectedId, onSelect }) {
   return (
@@ -308,13 +318,25 @@ function TraceDetails({ trace, loading }) {
           {stageStatusSummary.map((name) => {
             const stage = stages[name] || {}
             const stageMs = stageLatencyMs(trace, name)
-            const failed = stage?.status === 'failed'
+            const execution = stageExecutionStatus(stage)
+            const failed = execution === 'Failed'
+            const skipped = execution === 'Skipped'
+            const reason = stage?.failure_reason || stage?.error
+            const outcome = stage?.outcome || stage?.outputs?.outcome || stage?.outputs?.retrieval_outcome
             return (
               <div key={name} style={{ border: '1px solid rgba(0,130,255,0.2)', borderRadius: '8px', padding: '0.5rem 0.6rem', background: 'rgba(0,13,35,0.55)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.7rem', alignItems: 'center' }}>
                   <div style={{ color: '#d9f3ff', fontSize: '0.79rem', fontWeight: 600 }}>{stageLabel(name)}</div>
-                  <div style={{ color: failed ? '#ff9eb1' : '#c7f5e0', fontSize: '0.82rem', fontWeight: 700 }}>
+                  <div style={{ color: failed ? '#ffb5c3' : skipped ? '#b9c7d5' : '#c7f5e0', fontSize: '0.82rem', fontWeight: 700 }}>
                     {fmtMs(stageMs)}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.7rem', marginTop: '0.18rem' }}>
+                  <div style={{ color: failed ? '#ffc1cf' : skipped ? 'rgba(190,206,222,0.84)' : '#b6efd7', fontSize: '0.72rem', fontWeight: 600 }}>
+                    {execution}
+                  </div>
+                  <div style={{ color: failed ? '#ffc8d4' : 'rgba(171,213,246,0.78)', fontSize: '0.7rem', textAlign: 'right', maxWidth: '70%' }}>
+                    {failed ? (reason || 'stage error') : (outcome || '')}
                   </div>
                 </div>
               </div>

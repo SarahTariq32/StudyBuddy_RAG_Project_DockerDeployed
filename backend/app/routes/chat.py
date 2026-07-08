@@ -12,6 +12,8 @@ router = APIRouter(tags=["chat"])
 INDEXING_MESSAGE = "Your document is still indexing. Please wait a little and try again."
 NO_DOCUMENT_MESSAGE = "No PDF is ready yet. Please upload a PDF and wait until it is indexed."
 
+STAGE_NAMES = ("query_rewrite", "embedding", "retrieval", "llm_generation", "final_answer")
+
 
 def _looks_like_follow_up(question: str) -> bool:
     q = (question or "").strip().lower()
@@ -95,6 +97,60 @@ def _answer_outcome(answer: str, retrieved_count: int) -> str:
     return "answered"
 
 
+def _new_stage_state() -> dict:
+    return {
+        name: {
+            "execution_status": "Skipped",
+            "status": "skipped",
+            "outcome": None,
+            "failure_reason": None,
+            "latency_ms": None,
+        }
+        for name in STAGE_NAMES
+    }
+
+
+def _set_stage_completed(stages: dict, name: str, *, latency_ms=None, outcome: str | None = None) -> None:
+    stage = stages.setdefault(name, {})
+    stage["execution_status"] = "Completed"
+    stage["status"] = "success"
+    stage["failure_reason"] = None
+    stage["latency_ms"] = latency_ms
+    stage["outcome"] = outcome
+
+
+def _set_stage_failed(stages: dict, name: str, reason: str, *, latency_ms=None, outcome: str | None = None) -> None:
+    stage = stages.setdefault(name, {})
+    stage["execution_status"] = "Failed"
+    stage["status"] = "failed"
+    stage["failure_reason"] = str(reason)
+    stage["latency_ms"] = latency_ms
+    stage["outcome"] = outcome
+
+
+def _set_stage_skipped(stages: dict, name: str, *, outcome: str | None = None) -> None:
+    stage = stages.setdefault(name, {})
+    stage["execution_status"] = "Skipped"
+    stage["status"] = "skipped"
+    stage["failure_reason"] = None
+    stage["latency_ms"] = None
+    stage["outcome"] = outcome
+
+
+def _first_failed_reason(stages: dict) -> str | None:
+    for name in STAGE_NAMES:
+        st = stages.get(name, {}) or {}
+        if st.get("execution_status") == "Failed":
+            reason = st.get("failure_reason")
+            return f"{name}: {reason}" if reason else name
+    return None
+
+
+def _overall_request_failed(stages: dict, *, fallback_recovered: bool) -> bool:
+    any_critical_failed = any((stages.get(name, {}) or {}).get("execution_status") == "Failed" for name in STAGE_NAMES)
+    return any_critical_failed and not fallback_recovered
+
+
 def _documents_state() -> tuple[int, int]:
     conn = get_connection()
     try:
@@ -124,23 +180,43 @@ def ask(payload: AskRequest, request: Request):
     if ops is not None:
         root = ops.start_root_trace(question=question, session_id=session_id, path="/ask")
 
-    stage_status = {
-        "query_rewrite": "success",
-        "retrieval": "success",
-        "prompt_creation": "success",
-        "llm_generation": "success",
-        "final_answer": "success",
-    }
+    stage_status = _new_stage_state()
+    fallback_mode = None
+    fallback_reason = None
 
     def _finish(answer: str, err: str | None = None, metrics: dict | None = None) -> AskResponse:
+        retrieved_count = len(retrieved_docs)
+        answer_outcome = _answer_outcome(answer, retrieved_count)
+        llm_only = retrieved_count <= 0
+
+        if answer_outcome == "no_evidence":
+            _set_stage_completed(stage_status, "final_answer", outcome="no_relevant_context")
+        elif answer_outcome == "empty":
+            _set_stage_failed(stage_status, "final_answer", "empty answer")
+        else:
+            _set_stage_completed(stage_status, "final_answer", outcome=answer_outcome)
+
+        recovered_from_failure = bool(fallback_mode == "fallback_after_pipeline_error" and (answer or "").strip())
+        stage_failed = _overall_request_failed(stage_status, fallback_recovered=recovered_from_failure)
+        failed_answer = _is_unsuccessful_answer(answer, retrieved_count)
+        status_failed = bool(err) or failed_answer or stage_failed
+
+        request_failure_reason = err or _first_failed_reason(stage_status)
+        response_source = "llm_only_response" if llm_only else "rag_context"
+        if fallback_mode == "fallback_after_pipeline_error":
+            response_source = "fallback_after_pipeline_error"
+
         final_metrics = metrics or {
             "overall_ms": round((time.perf_counter() - started) * 1000.0, 2),
-            "stage_status": stage_status,
+            "retrieved_chunk_count": retrieved_count,
         }
-        answer_outcome = _answer_outcome(answer, len(retrieved_docs))
-        failed_answer = _is_unsuccessful_answer(answer, len(retrieved_docs))
-        status_failed = bool(err) or failed_answer
-        stage_status["final_answer"] = "failed" if status_failed else "success"
+        final_metrics["stage_status"] = stage_status
+        final_metrics["answer_outcome"] = answer_outcome
+        final_metrics["response_source"] = response_source
+        final_metrics["request_failure_reason"] = request_failure_reason
+        final_metrics["fallback_mode"] = fallback_mode
+        final_metrics["overall_status"] = "failed" if status_failed else "success"
+        final_metrics["fallback_reason"] = fallback_reason
 
         trace_id = str(root.trace_id) if root is not None else f"local-{int(time.time() * 1000)}"
         local_trace = {
@@ -148,47 +224,58 @@ def ask(payload: AskRequest, request: Request):
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "status": "failed" if status_failed else "success",
             "answer_outcome": answer_outcome,
+            "response_source": response_source,
+            "request_failure_reason": request_failure_reason,
+            "fallback_mode": fallback_mode,
+            "fallback_reason": fallback_reason,
             "question": question,
             "session_id": session_id,
             "query_rewrite": rewritten,
             "multi_queries": rewrites,
             "retrieved_documents": retrieved_docs,
-            "retrieved_chunk_count": len(retrieved_docs),
+            "retrieved_chunk_count": retrieved_count,
             "prompt_preview": (prompt_text or "")[:1600] if prompt_text else None,
             "llm_response_preview": (answer or "")[:1000],
             "token_usage": token_usage,
             "pipeline_stages": {
                 "query_rewrite": {
-                    "status": stage_status.get("query_rewrite", "success"),
-                    "latency_ms": None,
+                    **(stage_status.get("query_rewrite") or {}),
                     "outputs": {"rewritten_question": rewritten},
                 },
+                "embedding": {
+                    **(stage_status.get("embedding") or {}),
+                    "outputs": {},
+                },
                 "multi_query_generation": {
-                    "status": "success",
+                    "execution_status": "Completed" if rewrites else "Skipped",
+                    "status": "success" if rewrites else "skipped",
                     "latency_ms": None,
+                    "outcome": "expanded_queries" if rewrites else None,
+                    "failure_reason": None,
                     "outputs": {"queries": rewrites},
                 },
                 "retrieval": {
-                    "status": stage_status.get("retrieval", "success"),
+                    **(stage_status.get("retrieval") or {}),
                     "latency_ms": final_metrics.get("retrieval_ms"),
                     "outputs": {
                         "retrieved_documents": retrieved_docs,
-                        "retrieved_chunk_count": len(retrieved_docs),
+                        "retrieved_chunk_count": retrieved_count,
+                        "retrieval_outcome": (stage_status.get("retrieval") or {}).get("outcome"),
                     },
                 },
                 "llm_generation": {
-                    "status": stage_status.get("llm_generation", "success"),
+                    **(stage_status.get("llm_generation") or {}),
                     "latency_ms": final_metrics.get("llm_ms"),
                     "outputs": {
                         "answer_preview": (answer or "")[:1000],
                     },
                 },
                 "final_answer": {
-                    "status": stage_status.get("final_answer", "success"),
-                    "latency_ms": None,
+                    **(stage_status.get("final_answer") or {}),
                     "outputs": {
                         "status": "failed" if status_failed else "success",
                         "outcome": answer_outcome,
+                        "source": response_source,
                     },
                 },
             },
@@ -197,7 +284,7 @@ def ask(payload: AskRequest, request: Request):
                 "llm_ms": final_metrics.get("llm_ms"),
                 "overall_ms": final_metrics.get("overall_ms"),
             },
-            "error": err,
+            "error": request_failure_reason if status_failed else None,
         }
         if ops is not None:
             try:
@@ -211,23 +298,36 @@ def ask(payload: AskRequest, request: Request):
                 outputs={
                     "answer": answer,
                     "query_rewrite": rewritten,
-                    "retrieved_chunk_count": len(retrieved_docs),
+                    "retrieved_chunk_count": retrieved_count,
                     "prompt_preview": (prompt_text or "")[:1600] if prompt_text else None,
                     "answer_outcome": answer_outcome,
+                    "response_source": response_source,
+                    "request_failure_reason": request_failure_reason,
+                    "fallback_mode": fallback_mode,
+                    "fallback_reason": fallback_reason,
+                    "overall_status": "failed" if status_failed else "success",
                 },
-                error=err or ("empty_answer" if failed_answer else None),
+                error=request_failure_reason if status_failed else None,
                 metrics=final_metrics,
             )
         return AskResponse(answer=answer)
 
+    rewrite_started = time.perf_counter()
     try:
         history_stage = ops.start_stage(root, "query_rewrite", run_type="chain", inputs={"question": question}) if root else None
         history = get_recent_history(session_id)
     except Exception:
         history = []
-        stage_status["query_rewrite"] = "failed"
+        _set_stage_failed(stage_status, "query_rewrite", "history lookup failed")
     finally:
         rewritten = _rewrite_with_history(question, history)
+        if (stage_status.get("query_rewrite") or {}).get("execution_status") != "Failed":
+            _set_stage_completed(
+                stage_status,
+                "query_rewrite",
+                latency_ms=round((time.perf_counter() - rewrite_started) * 1000.0, 2),
+                outcome="rewritten" if rewritten != question else "as_is",
+            )
         if history_stage:
             ops.end_span(
                 history_stage,
@@ -262,6 +362,14 @@ def ask(payload: AskRequest, request: Request):
             retrieved_docs = llm_details.get("retrieved_documents", []) or []
             rewrites = llm_details.get("rewrites", []) or []
 
+            _set_stage_completed(stage_status, "embedding", latency_ms=retrieval_ms, outcome="query_embedded")
+            _set_stage_completed(
+                stage_status,
+                "retrieval",
+                latency_ms=retrieval_ms,
+                outcome="relevant_context_found" if len(retrieved_docs) > 0 else "no_relevant_context",
+            )
+
             if retrieval_stage:
                 ops.end_span(
                     retrieval_stage,
@@ -295,6 +403,12 @@ def ask(payload: AskRequest, request: Request):
                         "llm_ms": llm_ms,
                     },
                 )
+            _set_stage_completed(
+                stage_status,
+                "llm_generation",
+                latency_ms=llm_ms,
+                outcome="generated" if (answer or "").strip() else "empty",
+            )
 
             try:
                 save_message(session_id, "user", question)
@@ -322,8 +436,11 @@ def ask(payload: AskRequest, request: Request):
                 },
             )
         except Exception as exc:
-            stage_status["retrieval"] = "failed"
-            stage_status["llm_generation"] = "failed"
+            fallback_mode = "fallback_after_pipeline_error"
+            fallback_reason = str(exc)
+            _set_stage_failed(stage_status, "retrieval", str(exc))
+            _set_stage_failed(stage_status, "embedding", str(exc))
+            _set_stage_failed(stage_status, "llm_generation", str(exc))
             if root:
                 err_stage = ops.start_stage(root, "llm_generation", run_type="llm", inputs={"provider": "langchain"})
                 ops.end_span(err_stage, error=str(exc))
@@ -347,8 +464,10 @@ def ask(payload: AskRequest, request: Request):
     try:
         retrieval_data = retrieve_context_with_debug(rewritten)
         contexts = retrieval_data.get("context", [])
+        _set_stage_completed(stage_status, "embedding", outcome="query_embedded")
     except Exception as exc:
-        stage_status["retrieval"] = "failed"
+        _set_stage_failed(stage_status, "embedding", str(exc))
+        _set_stage_failed(stage_status, "retrieval", str(exc), outcome="retrieval_unavailable")
         if retrieval_stage:
             ops.end_span(retrieval_stage, error=str(exc))
         err_msg = f"Retrieval failed: {exc}"
@@ -356,6 +475,14 @@ def ask(payload: AskRequest, request: Request):
             ops.end_root(root, error=err_msg, metrics={"overall_ms": round((time.perf_counter() - started) * 1000.0, 2), "stage_status": stage_status})
         raise HTTPException(status_code=502, detail=err_msg)
     retrieval_ms = round((time.perf_counter() - retrieval_start) * 1000.0, 2)
+    _set_stage_completed(
+        stage_status,
+        "retrieval",
+        latency_ms=retrieval_ms,
+        outcome="relevant_context_found" if len(contexts) > 0 else "no_relevant_context",
+    )
+    if (stage_status.get("embedding") or {}).get("execution_status") != "Failed":
+        _set_stage_completed(stage_status, "embedding", latency_ms=retrieval_ms, outcome="query_embedded")
     if retrieval_stage:
         ops.end_span(
             retrieval_stage,
@@ -383,6 +510,9 @@ def ask(payload: AskRequest, request: Request):
         answer = non_rag_reply_for_small_talk(question)
         prompt_text = None
         llm_ms = None
+        _set_stage_skipped(stage_status, "llm_generation", outcome="skipped_no_context")
+        if answer:
+            fallback_mode = fallback_mode or "llm_only_response"
     else:
         try:
             prompt_stage = ops.start_stage(root, "prompt_creation", run_type="prompt", inputs={"question": question}) if root else None
@@ -406,6 +536,12 @@ def ask(payload: AskRequest, request: Request):
                         "llm_ms": llm_ms,
                     },
                 )
+            _set_stage_completed(
+                stage_status,
+                "llm_generation",
+                latency_ms=llm_ms,
+                outcome="generated" if (answer or "").strip() else "empty",
+            )
         except TypeError:
             # Backward-compatibility fallback for older function signatures.
             llm_start = time.perf_counter()
@@ -414,8 +550,14 @@ def ask(payload: AskRequest, request: Request):
             answer = result.get("answer", "")
             prompt_text = result.get("prompt")
             token_usage = result.get("token_usage", token_usage)
+            _set_stage_completed(
+                stage_status,
+                "llm_generation",
+                latency_ms=llm_ms,
+                outcome="generated" if (answer or "").strip() else "empty",
+            )
         except Exception as exc:
-            stage_status["llm_generation"] = "failed"
+            _set_stage_failed(stage_status, "llm_generation", str(exc))
             if root:
                 err_stage = ops.start_stage(root, "llm_generation", run_type="llm", inputs={"provider": "legacy"})
                 ops.end_span(err_stage, error=str(exc))
