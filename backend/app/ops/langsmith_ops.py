@@ -7,11 +7,11 @@ from typing import Any, Optional
 from app.config import LLM_PROVIDER
 
 
-def _utcnow() -> datetime:
+def _utcnow() -> datetime: #returns current time
     return datetime.now(timezone.utc)
 
 
-def _to_iso(value: Any) -> Optional[str]:
+def _to_iso(value: Any) -> Optional[str]: #converts value to ISO 8601 string
     if value is None:
         return None
     if isinstance(value, str):
@@ -23,7 +23,7 @@ def _to_iso(value: Any) -> Optional[str]:
     return str(value)
 
 
-def _to_ms(start: Any, end: Any) -> Optional[float]:
+def _to_ms(start: Any, end: Any) -> Optional[float]: #calculates the difference between start and end in milliseconds
     if not start or not end:
         return None
     if isinstance(start, str):
@@ -35,7 +35,7 @@ def _to_ms(start: Any, end: Any) -> Optional[float]:
     return None
 
 
-def _safe_get(obj: Any, key: str, default: Any = None) -> Any:
+def _safe_get(obj: Any, key: str, default: Any = None) -> Any: #safely retrieves a value from a dictionary or object attribute
     if obj is None:
         return default
     if isinstance(obj, dict):
@@ -44,7 +44,7 @@ def _safe_get(obj: Any, key: str, default: Any = None) -> Any:
 
 
 class TraceSpan:
-    def __init__(self, trace_id: uuid.UUID, parent_id: Optional[uuid.UUID], name: str):
+    def __init__(self, trace_id: uuid.UUID, parent_id: Optional[uuid.UUID], name: str): #Initializes LangSmith service
         self.trace_id = trace_id
         self.parent_id = parent_id
         self.name = name

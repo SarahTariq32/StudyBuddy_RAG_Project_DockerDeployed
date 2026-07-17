@@ -24,3 +24,7 @@ langsmith==0.1.147
 google-genai==2.9.0
 groq>=0.4.1,<1.0.0
 openai==1.95.1
+
+pytest
+pytest-mock
+httpx
